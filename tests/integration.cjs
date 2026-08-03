@@ -23,6 +23,20 @@ function makeConfig(patch = {}) {
 async function main() {
   assert.deepEqual(plugin.inject.required, ['chatluna'])
   assert.deepEqual(plugin.inject.optional, ['database'])
+  const selector = plugin.Config.list[0]
+  const conditional = plugin.Config.list[1]
+  const authMode = selector.dict.authMode
+  assert.equal(selector.type, 'object')
+  assert.equal(conditional.type, 'union')
+  assert.equal(authMode.type, 'union')
+  assert.deepEqual(authMode.list.map((item) => item.value), [
+    'auto',
+    'onebot',
+    'qrcode',
+  ])
+  assert.equal(authMode.meta.default, 'auto')
+  assert.equal(conditional.list[0].dict.authMode.meta.default, 'auto')
+  assert.throws(() => plugin.Config({}))
   assert.throws(() => plugin.Config({
     authMode: 'auto',
     commandAuthority: 1,

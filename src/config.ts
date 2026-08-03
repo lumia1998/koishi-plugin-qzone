@@ -16,19 +16,11 @@ function onebotSelfIdSchema() {
     .description('提供 QQ 空间 Cookie 的 OneBot 机器人 QQ 号')
 }
 
-const authentication = Schema.union([
-  Schema.object({
-    authMode: Schema.const('auto').default('auto').description('优先 OneBot，失败后使用二维码凭据'),
-    onebotSelfId: onebotSelfIdSchema(),
-  }),
-  Schema.object({
-    authMode: Schema.const('onebot').description('仅使用指定 OneBot 机器人'),
-    onebotSelfId: onebotSelfIdSchema(),
-  }),
-  Schema.object({
-    authMode: Schema.const('qrcode').description('仅使用二维码凭据'),
-  }),
-]).description('认证')
+const authMode = Schema.union([
+  Schema.const('auto').description('优先 OneBot，认证失败后使用二维码凭据'),
+  Schema.const('onebot').description('仅使用指定 OneBot 机器人'),
+  Schema.const('qrcode').description('仅使用二维码凭据'),
+]).default('auto').description('认证方式')
 
 const permissions = Schema.object({
   commandAuthority: Schema.number().min(0).max(5).default(1).description('查询、点赞、评论命令与工具权限'),
@@ -36,6 +28,19 @@ const permissions = Schema.object({
 }).description('权限')
 
 export const Config = Schema.intersect([
-  authentication,
+  Schema.object({ authMode }).description('认证'),
+  Schema.union([
+    Schema.object({
+      authMode: Schema.const('auto').default('auto'),
+      onebotSelfId: onebotSelfIdSchema(),
+    }),
+    Schema.object({
+      authMode: Schema.const('onebot').required(),
+      onebotSelfId: onebotSelfIdSchema(),
+    }),
+    Schema.object({
+      authMode: Schema.const('qrcode').required(),
+    }),
+  ]),
   permissions,
 ]) as Schema<Config>
