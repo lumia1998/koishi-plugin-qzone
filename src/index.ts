@@ -5,6 +5,7 @@ import type { Session } from 'koishi'
 
 import { Config as ConfigSchema } from './config'
 import type { Config as QzonePluginConfig } from './config'
+import { createCredentialAdapter } from './adapters'
 import {
   QrCodeCredentialAdapter,
   QrLoginError,
@@ -30,6 +31,7 @@ export const name = 'qzone'
 export const inject = { required: ['chatluna'], optional: ['database'] }
 export const Config = ConfigSchema
 export interface Config extends QzonePluginConfig {}
+export { KoishiOneBotAdapter } from './adapters/onebot'
 export {
   QrCodeCredentialAdapter,
   QrLoginError,
@@ -48,6 +50,7 @@ export { QzoneApi } from './qzone/api'
 export { QzoneSession } from './qzone/session'
 export { QzoneService } from './service'
 export type {
+  AuthMode,
   ApiResponse,
   Comment,
   CredentialAdapter,
@@ -80,8 +83,9 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
     loginTimeoutSeconds: DEFAULT_QZONE_SETTINGS.qrLoginTimeoutSeconds,
     pollIntervalMs: DEFAULT_QZONE_SETTINGS.qrPollIntervalMs,
   })
+  const credentialAdapter = createCredentialAdapter(ctx, config, qrCodeAdapter)
   const qzoneSession = new QzoneSession(
-    qrCodeAdapter,
+    credentialAdapter,
     DEFAULT_QZONE_SETTINGS.cookieTtlSeconds,
   )
   const api = new QzoneApi(qzoneSession, DEFAULT_QZONE_SETTINGS.timeoutMs)
@@ -116,7 +120,8 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
     authority: config.commandAuthority,
   }).alias('空间状态').action(async () => {
     const context = await qzoneSession.getContext()
-    return `QQ 空间已连接：${context.credentials.nickname || context.uin} (${context.uin})，认证来源：二维码`
+    const source = context.credentials.source === 'onebot' ? 'OneBot' : '二维码'
+    return `QQ 空间已连接：${context.credentials.nickname || context.uin} (${context.uin})，认证来源：${source}`
   })
 
   ctx.command('qzone.login', '使用 QQ 二维码登录空间', {
@@ -154,7 +159,7 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
     try {
       await qrCodeAdapter.clearCredential()
       qzoneSession.invalidate()
-      return '已清除插件保存的扫码凭据。'
+      return '已清除插件保存的扫码凭据；OneBot 登录状态不受影响。'
     } catch (error) {
       return error instanceof QrLoginError ? error.message : '扫码凭据清理失败。'
     }

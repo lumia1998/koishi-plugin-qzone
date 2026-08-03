@@ -1,11 +1,41 @@
 import { Schema } from 'koishi'
 
+import type { AuthMode } from './types'
+
 export interface Config {
+  authMode: AuthMode
+  onebotSelfId?: string
   commandAuthority: number
   adminAuthority: number
 }
 
-export const Config: Schema<Config> = Schema.object({
+function onebotSelfIdSchema() {
+  return Schema.string()
+    .pattern(/^\d+$/)
+    .required()
+    .description('提供 QQ 空间 Cookie 的 OneBot 机器人 QQ 号')
+}
+
+const authentication = Schema.union([
+  Schema.object({
+    authMode: Schema.const('auto').default('auto').description('优先 OneBot，失败后使用二维码凭据'),
+    onebotSelfId: onebotSelfIdSchema(),
+  }),
+  Schema.object({
+    authMode: Schema.const('onebot').description('仅使用指定 OneBot 机器人'),
+    onebotSelfId: onebotSelfIdSchema(),
+  }),
+  Schema.object({
+    authMode: Schema.const('qrcode').description('仅使用二维码凭据'),
+  }),
+]).description('认证')
+
+const permissions = Schema.object({
   commandAuthority: Schema.number().min(0).max(5).default(1).description('查询、点赞、评论命令与工具权限'),
   adminAuthority: Schema.number().min(0).max(5).default(3).description('扫码登录、发布和删除命令与工具权限'),
 }).description('权限')
+
+export const Config = Schema.intersect([
+  authentication,
+  permissions,
+]) as Schema<Config>

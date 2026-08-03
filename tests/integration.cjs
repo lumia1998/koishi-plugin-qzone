@@ -13,6 +13,7 @@ const { createEmptyPost } = require('../lib/types')
 
 function makeConfig(patch = {}) {
   return {
+    authMode: 'qrcode',
     commandAuthority: 1,
     adminAuthority: 3,
     ...patch,
@@ -22,6 +23,25 @@ function makeConfig(patch = {}) {
 async function main() {
   assert.deepEqual(plugin.inject.required, ['chatluna'])
   assert.deepEqual(plugin.inject.optional, ['database'])
+  assert.throws(() => plugin.Config({
+    authMode: 'auto',
+    commandAuthority: 1,
+    adminAuthority: 3,
+  }))
+  assert.throws(() => plugin.Config({
+    authMode: 'onebot',
+    onebotSelfId: 'not-a-qq-number',
+    commandAuthority: 1,
+    adminAuthority: 3,
+  }))
+  assert.equal(plugin.Config(makeConfig()).authMode, 'qrcode')
+  assert.equal(plugin.Config({
+    authMode: 'onebot',
+    onebotSelfId: '123456789',
+    commandAuthority: 1,
+    adminAuthority: 3,
+  }).onebotSelfId, '123456789')
+
   const withoutDatabase = new Context()
   assert.doesNotThrow(() => plugin.apply(withoutDatabase, makeConfig()))
   assert.ok(withoutDatabase.$commander.resolve('qzone.login'))

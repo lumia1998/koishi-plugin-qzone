@@ -1,7 +1,7 @@
 {
   "name": "koishi-plugin-qzone",
-  "version": "0.0.3",
-  "description": "测试中，不推荐下载。仅使用二维码登录的 ChatLuna QQ 空间工具",
+  "version": "0.0.4",
+  "description": "测试中，不推荐下载。支持 OneBot 自动刷新与二维码登录的 ChatLuna QQ 空间工具",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "exports": {
@@ -30,6 +30,7 @@
     "koishi",
     "qq",
     "qzone",
+    "onebot",
     "chatluna"
   ],
   "license": "GPL-3.0-only",

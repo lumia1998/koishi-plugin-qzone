@@ -1,3 +1,5 @@
+export type AuthMode = 'auto' | 'onebot' | 'qrcode'
+
 export interface CredentialResult {
   cookie: string
   source: string
