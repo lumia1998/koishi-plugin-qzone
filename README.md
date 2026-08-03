@@ -1,5 +1,7 @@
 # koishi-plugin-qzone
 
+> 测试中，不推荐下载。当前版本仅用于开发和验证，功能与兼容性尚未稳定。
+
 使用 TypeScript 编写的 Koishi QQ 空间插件。核心逻辑来自对
 `astrbot_plugin_qzone` 的重新设计，不依赖 Python 运行时，并将空间能力注册为
 ChatLuna 原生工具。
@@ -52,6 +54,11 @@ npm install /path/to/koishi-plugin-qzone
 
 ChatLuna 是必需服务。Koishi 必须先加载并成功启动 ChatLuna，否则本插件不会
 加载。QQ 空间动态的数据库持久化仍为可选能力。
+
+当前 ChatLuna 仍依赖 LangChain 0.3 API。本测试版按提交 SHA 锁定
+[`langchain-core-legacy-safe`](https://github.com/lumia1998/langchain-core-legacy-safe)，
+其代码为已构建的上游 `@langchain/core@0.3.80` 快照，仅将 `langsmith`
+和 `uuid` 更新到已修复安全问题的兼容版本。
 
 开发构建：
 
