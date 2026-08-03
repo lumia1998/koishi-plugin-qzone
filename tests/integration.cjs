@@ -19,6 +19,9 @@ function makeConfig(patch = {}) {
     onebotHttpUrl: '',
     onebotAccessToken: '',
     allowInsecureOnebotHttp: false,
+    qrCredentialPath: 'data/qzone/test-credentials.json',
+    qrLoginTimeoutSeconds: 120,
+    qrPollIntervalMs: 2000,
     cookieTtlSeconds: 600,
     timeoutMs: 10000,
     defaultFeedCount: 5,
@@ -41,6 +44,8 @@ function makeConfig(patch = {}) {
 async function main() {
   const withoutDatabase = new Context()
   assert.doesNotThrow(() => plugin.apply(withoutDatabase, makeConfig()))
+  assert.ok(withoutDatabase.$commander.resolve('qzone.login'))
+  assert.ok(withoutDatabase.$commander.resolve('qzone.logout'))
 
   const invalidCron = new Context()
   assert.doesNotThrow(() => plugin.apply(invalidCron, makeConfig({

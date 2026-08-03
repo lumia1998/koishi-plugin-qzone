@@ -6,6 +6,9 @@ plugins:
     onebotHttpUrl: ''
     onebotAccessToken: ''
     allowInsecureOnebotHttp: false
+    qrCredentialPath: data/qzone/credentials.json
+    qrLoginTimeoutSeconds: 120
+    qrPollIntervalMs: 2000
     cookieTtlSeconds: 600
     timeoutMs: 10000
     defaultFeedCount: 5

@@ -11,7 +11,7 @@
 - 查询最近访客
 - Koishi Database 持久化，未安装数据库插件时使用内存仓库
 - Cron 自动评论、点赞和发布，默认全部关闭
-- OneBot、OneBot HTTP、手动 Cookie 三种认证适配器
+- OneBot、OneBot HTTP、二维码登录、手动 Cookie 四种认证适配器
 - Cookie TTL 刷新和登录失效重试
 - JSON、JSONP、JSON5 与好友动态 HTML 解析
 - 发布图片的域名白名单、私网地址拦截、重定向检查和大小限制
@@ -36,7 +36,7 @@ bot.internal.getCredentials(domain?: string): Promise<{
 ```
 
 因此通常使用 `authMode: auto` 即可。如果具体 QQ 实现没有开放上述
-Action，插件会继续尝试 OneBot HTTP 和手动 Cookie。
+Action，插件会继续尝试 OneBot HTTP、已保存的扫码凭据和手动 Cookie。
 
 ## 安装
 
@@ -66,6 +66,9 @@ botId: ''
 onebotHttpUrl: ''
 onebotAccessToken: ''
 allowInsecureOnebotHttp: false
+qrCredentialPath: data/qzone/credentials.json
+qrLoginTimeoutSeconds: 120
+qrPollIntervalMs: 2000
 manualCookie: ''
 ```
 
@@ -73,7 +76,17 @@ manualCookie: ''
 
 1. Koishi 机器人上的 `bot.internal.getCookies()`
 2. 配置了地址时调用 OneBot HTTP `get_cookies`
-3. 配置了 Cookie 时使用独立 Qzone Cookie 适配器
+3. 使用插件二维码登录保存的 Qzone Cookie
+4. 配置了 Cookie 时使用手动 Cookie 适配器
+
+首次运行时，如果前两项都无法提供 Cookie，管理员需要私聊机器人执行：
+
+```text
+qzone.login
+```
+
+插件会发送 QQ 登录二维码并轮询扫码状态。手机 QQ 确认登录后，Cookie
+自动解析并保存，后续启动不需要重复扫码。二维码只允许在私聊中显示。
 
 ### OneBot HTTP
 
@@ -94,6 +107,31 @@ POST /get_login_info
 非回环地址默认要求 HTTPS。局域网内确需使用明文 HTTP 时，需要显式设置
 `allowInsecureOnebotHttp: true`，该模式会在网络上传输 OneBot Token。
 
+### 二维码登录
+
+```yaml
+authMode: qrcode
+qrCredentialPath: data/qzone/credentials.json
+qrLoginTimeoutSeconds: 120
+qrPollIntervalMs: 2000
+```
+
+也可以保留默认的 `authMode: auto`，仅在 OneBot 无法提供 Cookie 时使用扫码
+凭据。管理员在与机器人的私聊中执行 `qzone.login`，使用手机 QQ 扫描图片并
+确认。二维码过期后重新执行命令即可。
+
+凭据默认保存在 Koishi 工作目录下的 `data/qzone/credentials.json`，插件会在
+支持 POSIX 权限的平台上将目录设为 `0700`、文件设为 `0600`。该文件包含
+QQ 登录 Cookie，应当与 Koishi 配置文件采用相同的备份和访问控制策略。
+
+相关命令：
+
+```text
+qzone.login             # 开始扫码
+qzone.login --cancel    # 取消当前扫码
+qzone.logout            # 清除插件保存的扫码凭据
+```
+
 ### 独立 Qzone Cookie
 
 ```yaml
@@ -110,6 +148,8 @@ Cookie 属于登录凭据，应只写入 Koishi 的私密配置。
 | --- | --- | --- | --- |
 | `qzone.status` | `空间状态` | 普通 | 查看认证来源和账号 |
 | `qzone.refresh` | `刷新空间登录` | 管理员 | 强制刷新 Cookie |
+| `qzone.login` | `扫码登录空间` | 管理员 | 私聊扫码并自动保存 Cookie |
+| `qzone.logout` | `退出空间登录` | 管理员 | 清除插件保存的扫码凭据 |
 | `qzone.feed [范围]` | `看说说`、`查看说说` | 普通 | 查看好友动态 |
 | `qzone.like [引用]` | `赞说说` | 普通 | 点赞动态 |
 | `qzone.comment <引用> <内容>` | `评说说`、`评论说说` | 普通 | 评论动态 |
@@ -150,7 +190,7 @@ randomOffsetSeconds: 0
 
 ```text
 src/
-├── adapters/       # OneBot、HTTP、手动 Cookie
+├── adapters/       # OneBot、HTTP、二维码、手动 Cookie
 ├── qzone/          # 会话、HTTP、API、解析、图片边界
 ├── config.ts       # Koishi Schema
 ├── repository.ts   # Database/内存仓库
@@ -172,5 +212,5 @@ src/
 - QQ 空间接口不是稳定的公开业务 API，QQ 更新后可能需要调整参数或解析器。
 - 图片发布默认只接受 QQ 相关 CDN；其他图片域名需要显式加入白名单。
 - 自定义图片域名属于信任边界；下载器会固定已校验的公网 DNS 地址并在重定向后重新校验。
-- 手动 Cookie 到期后需要重新配置。
+- 扫码 Cookie 失效后需要重新执行 `qzone.login`；手动 Cookie 到期后需要重新配置。
 - 内存仓库会在插件重载后清空，生产环境建议安装数据库插件。

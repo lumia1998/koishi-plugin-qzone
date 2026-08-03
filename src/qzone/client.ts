@@ -80,7 +80,8 @@ export class QzoneHttpClient {
 
     if (response.status >= 300 && response.status < 400) {
       if (retry >= 2) throw new Error('Qzone 接口持续返回登录重定向')
-      await this.session.getContext(true)
+      if (retry === 0) await this.session.getContext(true)
+      else await this.session.refreshAfterAuthFailure()
       return this.request(method, url, options, retry + 1)
     }
 
@@ -93,7 +94,8 @@ export class QzoneHttpClient {
 
     if (expired) {
       if (retry >= 2) throw new Error('Qzone 登录状态刷新后仍然失效')
-      await this.session.getContext(true)
+      if (retry === 0) await this.session.getContext(true)
+      else await this.session.refreshAfterAuthFailure()
       return this.request(method, url, options, retry + 1)
     }
 

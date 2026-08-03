@@ -1,13 +1,20 @@
-import { Context, Logger } from 'koishi'
+import { resolve } from 'node:path'
+
+import { Context, h, Logger } from 'koishi'
 import type { Bot, Session } from 'koishi'
 
 import { Config as ConfigSchema } from './config'
 import type { Config as QzonePluginConfig } from './config'
 import { createCredentialAdapter } from './adapters'
+import {
+  QrCodeCredentialAdapter,
+  QrLoginError,
+} from './adapters/qrcode'
 import { formatPost } from './formatter'
 import { createRepository, defineDatabaseModel } from './repository'
 import type { Post, RangeSelection } from './types'
 import { QzoneApi } from './qzone/api'
+import { parseCredentials } from './qzone/context'
 import { SafeImageDownloader } from './qzone/image'
 import { QzoneSession } from './qzone/session'
 import { QzoneService } from './service'
@@ -25,6 +32,19 @@ export const Config = ConfigSchema
 export interface Config extends QzonePluginConfig {}
 export { ManualCookieAdapter } from './adapters/manual'
 export { KoishiOneBotAdapter, OneBotHttpAdapter } from './adapters/onebot'
+export {
+  QrCodeCredentialAdapter,
+  QrLoginError,
+  QrLoginRequiredError,
+  hash33 as qrcodeHash33,
+  parsePtuiCallback,
+} from './adapters/qrcode'
+export type {
+  PtuiCallback,
+  QrCodeCredentialAdapterOptions,
+  QrLoginCallbacks,
+  QrLoginChallenge,
+} from './adapters/qrcode'
 export { QzoneApi } from './qzone/api'
 export { QzoneSession } from './qzone/session'
 export { QzoneService } from './service'
@@ -65,7 +85,18 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
   const logger = new Logger('qzone')
   defineDatabaseModel(ctx)
 
-  const adapter = createCredentialAdapter(config, () => selectBot(ctx, config.botId))
+  const baseDir = (ctx as Context & { baseDir?: string }).baseDir || process.cwd()
+  const qrCodeAdapter = new QrCodeCredentialAdapter({
+    credentialPath: resolve(baseDir, config.qrCredentialPath || 'data/qzone/credentials.json'),
+    timeoutMs: config.timeoutMs,
+    loginTimeoutSeconds: config.qrLoginTimeoutSeconds || 120,
+    pollIntervalMs: config.qrPollIntervalMs || 2000,
+  })
+  const adapter = createCredentialAdapter(
+    config,
+    () => selectBot(ctx, config.botId),
+    qrCodeAdapter,
+  )
   const qzoneSession = new QzoneSession(adapter, config.cookieTtlSeconds)
   const api = new QzoneApi(qzoneSession, config.timeoutMs)
   const repository = createRepository(ctx)
@@ -101,6 +132,47 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
     qzoneSession.invalidate()
     const context = await qzoneSession.getContext(true)
     return `QQ 空间登录已刷新：${context.uin}，来源：${context.credentials.source}`
+  })
+
+  ctx.command('qzone.login', '使用 QQ 二维码登录空间', {
+    authority: config.adminAuthority,
+  }).alias('扫码登录空间')
+    .option('cancel', '--cancel 取消正在进行的扫码登录')
+    .action(async ({ session, options }) => {
+      if (!session) return
+      if (options?.cancel) {
+        return qrCodeAdapter.cancelLogin() ? '已取消二维码登录。' : '当前没有进行中的二维码登录。'
+      }
+      if (!session.isDirect) return '请在与机器人的私聊中执行 qzone.login，避免二维码被其他人扫描。'
+
+      try {
+        const result = await qrCodeAdapter.login({
+          async onQrCode(challenge) {
+            await session.send(`请使用手机 QQ 扫描二维码并确认登录，有效期至 ${new Date(challenge.expiresAt).toLocaleTimeString('zh-CN')}。`)
+            await session.send(h.image(challenge.image, challenge.contentType))
+          },
+          async onStatus(status) {
+            if (status === 'scanned') await session.send('二维码已扫描，请在手机 QQ 中确认登录。')
+          },
+        })
+        qzoneSession.invalidate()
+        const credential = parseCredentials(result.cookie, result.source, result.nickname)
+        return `QQ 空间扫码登录成功：${credential.nickname || credential.uin} (${credential.uin})。`
+      } catch (error) {
+        return error instanceof QrLoginError ? error.message : '二维码登录失败，请稍后重试。'
+      }
+    })
+
+  ctx.command('qzone.logout', '清除插件保存的 QQ 空间扫码凭据', {
+    authority: config.adminAuthority,
+  }).alias('退出空间登录').action(async () => {
+    try {
+      await qrCodeAdapter.clearCredential()
+      qzoneSession.invalidate()
+      return '已清除插件保存的扫码凭据；OneBot 自身的登录状态不受影响。'
+    } catch (error) {
+      return error instanceof QrLoginError ? error.message : '扫码凭据清理失败。'
+    }
   })
 
   ctx.command('qzone.feed [range:string]', '查看 QQ 空间动态', {
@@ -221,8 +293,9 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
     }
   }
 
-  ctx.on('dispose', () => {
+  ctx.on('dispose', async () => {
     for (const task of scheduledTasks) task.dispose()
     recentPosts.clear()
+    await qrCodeAdapter.dispose()
   })
 }

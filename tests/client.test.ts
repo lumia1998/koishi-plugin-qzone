@@ -7,8 +7,10 @@ import { QzoneSession } from '../src/qzone/session'
 describe('QzoneHttpClient', () => {
   it('refreshes credentials and retries on explicit login expiration', async () => {
     let credentialCalls = 0
+    const invalidateCredential = vi.fn(async () => undefined)
     const adapter: CredentialAdapter = {
       name: 'test',
+      invalidateCredential,
       async getCredential() {
         credentialCalls += 1
         return {
@@ -35,6 +37,7 @@ describe('QzoneHttpClient', () => {
     expect(result.code).toBe(0)
     expect(requestCalls).toBe(2)
     expect(credentialCalls).toBe(2)
+    expect(invalidateCredential).not.toHaveBeenCalled()
   })
 
   it('maps empty 403 responses to a permission error', async () => {

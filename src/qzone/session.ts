@@ -37,6 +37,13 @@ export class QzoneSession {
     this.refreshedAt = 0
   }
 
+  async refreshAfterAuthFailure(): Promise<QzoneContext> {
+    const source = this.context?.credentials.source
+    this.invalidate()
+    await this.adapter.invalidateCredential?.(source)
+    return this.getContext(true)
+  }
+
   private async refresh(): Promise<QzoneContext> {
     const result = await this.adapter.getCredential()
     this.context = new QzoneContext(

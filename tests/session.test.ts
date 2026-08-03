@@ -45,4 +45,19 @@ describe('QzoneSession', () => {
     expect(counter).toBe(3)
     vi.useRealTimers()
   })
+
+  it('invalidates the credential source after an authentication failure', async () => {
+    const invalidateCredential = vi.fn(async () => undefined)
+    const adapter: CredentialAdapter = {
+      name: 'test',
+      invalidateCredential,
+      async getCredential() {
+        return { cookie: 'uin=o10001; skey=s; p_skey=p', source: 'qrcode' }
+      },
+    }
+    const session = new QzoneSession(adapter, 600)
+    await session.getContext()
+    await session.refreshAfterAuthFailure()
+    expect(invalidateCredential).toHaveBeenCalledWith('qrcode')
+  })
 })

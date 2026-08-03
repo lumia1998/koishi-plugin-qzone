@@ -1,7 +1,10 @@
 import type { Bot } from 'koishi'
 import { describe, expect, it, vi } from 'vitest'
 
+import { createCredentialAdapter } from '../src/adapters'
 import { KoishiOneBotAdapter, OneBotHttpAdapter } from '../src/adapters/onebot'
+import type { Config } from '../src/config'
+import type { CredentialAdapter } from '../src/types'
 
 describe('credential adapters', () => {
   it('uses the typed OneBot getCookies API exposed by Koishi', async () => {
@@ -69,5 +72,28 @@ describe('credential adapters', () => {
     })
     await expect(adapter.getCredential()).rejects.toThrow('HTTPS')
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('uses a persisted QR credential before the manual-cookie fallback', async () => {
+    const qrcode: CredentialAdapter = {
+      name: 'qrcode',
+      getCredential: vi.fn(async () => ({
+        cookie: 'uin=o10001; skey=qr-s; p_skey=qr-p',
+        source: 'qrcode',
+      })),
+    }
+    const config = {
+      authMode: 'auto',
+      onebotHttpUrl: '',
+      onebotAccessToken: '',
+      allowInsecureOnebotHttp: false,
+      manualCookie: 'uin=o20002; skey=manual-s; p_skey=manual-p',
+      timeoutMs: 1000,
+    } as Config
+    const adapter = createCredentialAdapter(config, () => undefined, qrcode)
+
+    const result = await adapter.getCredential()
+    expect(result.source).toBe('qrcode')
+    expect(qrcode.getCredential).toHaveBeenCalledOnce()
   })
 })

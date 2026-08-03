@@ -1,4 +1,4 @@
-export type AuthMode = 'auto' | 'onebot' | 'onebot-http' | 'manual'
+export type AuthMode = 'auto' | 'onebot' | 'onebot-http' | 'qrcode' | 'manual'
 
 export interface CredentialResult {
   cookie: string
@@ -9,6 +9,7 @@ export interface CredentialResult {
 export interface CredentialAdapter {
   readonly name: string
   getCredential(): Promise<CredentialResult>
+  invalidateCredential?(source?: string): Promise<void>
 }
 
 export interface QzoneCredentials {

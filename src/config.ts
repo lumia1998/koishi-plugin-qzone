@@ -9,6 +9,9 @@ export interface Config {
   onebotHttpUrl: string
   onebotAccessToken: string
   allowInsecureOnebotHttp: boolean
+  qrCredentialPath: string
+  qrLoginTimeoutSeconds: number
+  qrPollIntervalMs: number
   cookieTtlSeconds: number
   timeoutMs: number
   defaultFeedCount: number
@@ -27,9 +30,10 @@ export interface Config {
 }
 
 const authModeSchema = Schema.union([
-  Schema.const('auto').description('依次尝试 OneBot、HTTP Action、手动 Cookie'),
+  Schema.const('auto').description('依次尝试 OneBot、HTTP Action、扫码凭据、手动 Cookie'),
   Schema.const('onebot').description('Koishi OneBot 适配器'),
   Schema.const('onebot-http').description('独立 OneBot HTTP Action'),
+  Schema.const('qrcode').description('插件内置 QQ 二维码登录'),
   Schema.const('manual').description('独立 Qzone Cookie'),
 ])
 
@@ -41,6 +45,9 @@ export const Config: Schema<Config> = Schema.intersect([
     onebotHttpUrl: Schema.string().description('OneBot HTTP API 地址，例如 http://127.0.0.1:3000'),
     onebotAccessToken: Schema.string().role('secret').description('OneBot HTTP access token'),
     allowInsecureOnebotHttp: Schema.boolean().default(false).description('允许向非回环 HTTP 地址发送 OneBot Token'),
+    qrCredentialPath: Schema.string().default('data/qzone/credentials.json').description('扫码凭据文件，相对 Koishi 工作目录'),
+    qrLoginTimeoutSeconds: Schema.number().min(30).max(300).step(10).default(120).description('二维码登录超时时间'),
+    qrPollIntervalMs: Schema.number().min(1000).max(5000).step(500).default(2000).description('二维码状态轮询间隔'),
     cookieTtlSeconds: Schema.number().min(0).max(86400).step(60).default(600).description('Cookie 缓存时间，0 表示持续缓存'),
   }).description('认证'),
   Schema.object({
