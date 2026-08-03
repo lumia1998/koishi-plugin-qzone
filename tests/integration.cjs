@@ -13,30 +13,8 @@ const { createEmptyPost } = require('../lib/types')
 
 function makeConfig(patch = {}) {
   return {
-    authMode: 'auto',
-    botId: '',
-    manualCookie: '',
-    onebotHttpUrl: '',
-    onebotAccessToken: '',
-    allowInsecureOnebotHttp: false,
-    qrCredentialPath: 'data/qzone/test-credentials.json',
-    qrLoginTimeoutSeconds: 120,
-    qrPollIntervalMs: 2000,
-    cookieTtlSeconds: 600,
-    timeoutMs: 10000,
-    defaultFeedCount: 5,
-    maxImageBytes: 8 * 1024 * 1024,
-    maxImages: 9,
-    allowedImageHosts: ['*.qpic.cn'],
     commandAuthority: 1,
     adminAuthority: 3,
-    autoCommentCron: '',
-    autoCommentText: '',
-    autoLikeWithComment: true,
-    autoPublishCron: '',
-    autoPublishText: '',
-    cronTimezone: 'Asia/Shanghai',
-    randomOffsetSeconds: 0,
     ...patch,
   }
 }
@@ -48,12 +26,7 @@ async function main() {
   assert.doesNotThrow(() => plugin.apply(withoutDatabase, makeConfig()))
   assert.ok(withoutDatabase.$commander.resolve('qzone.login'))
   assert.ok(withoutDatabase.$commander.resolve('qzone.logout'))
-
-  const invalidCron = new Context()
-  assert.doesNotThrow(() => plugin.apply(invalidCron, makeConfig({
-    autoCommentCron: 'invalid cron',
-    autoCommentText: 'test',
-  })))
+  assert.equal(withoutDatabase.$commander.resolve('qzone.refresh'), undefined)
 
   const ctx = new Context()
   ctx.plugin(MemoryDriver)

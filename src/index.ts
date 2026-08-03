@@ -1,16 +1,16 @@
 import { resolve } from 'node:path'
 
-import { Context, h, Logger } from 'koishi'
-import type { Bot, Session } from 'koishi'
+import { Context, h } from 'koishi'
+import type { Session } from 'koishi'
 
 import { Config as ConfigSchema } from './config'
 import type { Config as QzonePluginConfig } from './config'
-import { createCredentialAdapter } from './adapters'
 import {
   QrCodeCredentialAdapter,
   QrLoginError,
 } from './adapters/qrcode'
 import { registerChatLunaTools } from './chatluna'
+import { DEFAULT_QZONE_SETTINGS } from './defaults'
 import { formatPost } from './formatter'
 import { createRepository, defineDatabaseModel } from './repository'
 import type { Post, RangeSelection } from './types'
@@ -19,7 +19,6 @@ import { parseCredentials } from './qzone/context'
 import { SafeImageDownloader } from './qzone/image'
 import { QzoneSession } from './qzone/session'
 import { QzoneService } from './service'
-import { RandomizedCronTask } from './scheduler'
 import {
   collectImageSources,
   findMentionedUser,
@@ -31,8 +30,6 @@ export const name = 'qzone'
 export const inject = { required: ['chatluna'], optional: ['database'] }
 export const Config = ConfigSchema
 export interface Config extends QzonePluginConfig {}
-export { ManualCookieAdapter } from './adapters/manual'
-export { KoishiOneBotAdapter, OneBotHttpAdapter } from './adapters/onebot'
 export {
   QrCodeCredentialAdapter,
   QrLoginError,
@@ -59,16 +56,6 @@ export type {
   QzoneCredentials,
 } from './types'
 
-function selectBot(ctx: Context, configuredId: string): Bot | undefined {
-  const bots = [...ctx.bots]
-  if (configuredId) return bots.find((bot) => bot.selfId === configuredId)
-  return bots.find((bot) => {
-    const internal = bot.internal as Record<string, unknown> | undefined
-    return typeof internal?.getCookies === 'function'
-      || typeof internal?.getCredentials === 'function'
-  }) || bots[0]
-}
-
 function sessionCacheKey(session: Session): string {
   return [session.platform, session.selfId, session.guildId, session.channelId, session.userId].join(':')
 }
@@ -84,30 +71,33 @@ async function sendPosts(session: Session, posts: Post[]): Promise<void> {
 }
 
 export function apply(ctx: Context, config: QzonePluginConfig): void {
-  const logger = new Logger('qzone')
   defineDatabaseModel(ctx)
 
   const baseDir = (ctx as Context & { baseDir?: string }).baseDir || process.cwd()
   const qrCodeAdapter = new QrCodeCredentialAdapter({
-    credentialPath: resolve(baseDir, config.qrCredentialPath || 'data/qzone/credentials.json'),
-    timeoutMs: config.timeoutMs,
-    loginTimeoutSeconds: config.qrLoginTimeoutSeconds || 120,
-    pollIntervalMs: config.qrPollIntervalMs || 2000,
+    credentialPath: resolve(baseDir, DEFAULT_QZONE_SETTINGS.credentialPath),
+    timeoutMs: DEFAULT_QZONE_SETTINGS.timeoutMs,
+    loginTimeoutSeconds: DEFAULT_QZONE_SETTINGS.qrLoginTimeoutSeconds,
+    pollIntervalMs: DEFAULT_QZONE_SETTINGS.qrPollIntervalMs,
   })
-  const adapter = createCredentialAdapter(
-    config,
-    () => selectBot(ctx, config.botId),
+  const qzoneSession = new QzoneSession(
     qrCodeAdapter,
+    DEFAULT_QZONE_SETTINGS.cookieTtlSeconds,
   )
-  const qzoneSession = new QzoneSession(adapter, config.cookieTtlSeconds)
-  const api = new QzoneApi(qzoneSession, config.timeoutMs)
+  const api = new QzoneApi(qzoneSession, DEFAULT_QZONE_SETTINGS.timeoutMs)
   const repository = createRepository(ctx)
   const downloader = new SafeImageDownloader({
-    allowedHosts: config.allowedImageHosts,
-    maxBytes: config.maxImageBytes,
-    timeoutMs: config.timeoutMs,
+    allowedHosts: [...DEFAULT_QZONE_SETTINGS.allowedImageHosts],
+    maxBytes: DEFAULT_QZONE_SETTINGS.maxImageBytes,
+    timeoutMs: DEFAULT_QZONE_SETTINGS.timeoutMs,
   })
-  const service = new QzoneService(api, qzoneSession, repository, downloader, config.maxImages)
+  const service = new QzoneService(
+    api,
+    qzoneSession,
+    repository,
+    downloader,
+    DEFAULT_QZONE_SETTINGS.maxImages,
+  )
   const recentPosts = new Map<string, Post[]>()
   registerChatLunaTools(ctx, service, config)
 
@@ -126,15 +116,7 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
     authority: config.commandAuthority,
   }).alias('空间状态').action(async () => {
     const context = await qzoneSession.getContext()
-    return `QQ 空间已连接：${context.credentials.nickname || context.uin} (${context.uin})，认证来源：${context.credentials.source}`
-  })
-
-  ctx.command('qzone.refresh', '刷新 QQ 空间 Cookie', {
-    authority: config.adminAuthority,
-  }).alias('刷新空间登录').action(async () => {
-    qzoneSession.invalidate()
-    const context = await qzoneSession.getContext(true)
-    return `QQ 空间登录已刷新：${context.uin}，来源：${context.credentials.source}`
+    return `QQ 空间已连接：${context.credentials.nickname || context.uin} (${context.uin})，认证来源：二维码`
   })
 
   ctx.command('qzone.login', '使用 QQ 二维码登录空间', {
@@ -172,7 +154,7 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
     try {
       await qrCodeAdapter.clearCredential()
       qzoneSession.invalidate()
-      return '已清除插件保存的扫码凭据；OneBot 自身的登录状态不受影响。'
+      return '已清除插件保存的扫码凭据。'
     } catch (error) {
       return error instanceof QrLoginError ? error.message : '扫码凭据清理失败。'
     }
@@ -180,12 +162,12 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
 
   ctx.command('qzone.feed [range:string]', '查看 QQ 空间动态', {
     authority: config.commandAuthority,
-  }).alias('看说说').alias('查看说说')
+  }).alias('看说说')
     .option('user', '-u <user:string> 指定 QQ 号')
     .option('detail', '-d 获取完整评论')
     .action(async ({ session, options }, range) => {
       if (!session) return
-      const selection: RangeSelection = parseRange(range, config.defaultFeedCount)
+      const selection: RangeSelection = parseRange(range, DEFAULT_QZONE_SETTINGS.defaultFeedCount)
       const target = options?.user || findMentionedUser(session)
       if (target && !/^\d+$/.test(target)) return 'QQ 号必须为纯数字。'
       const posts = await service.queryFeeds({
@@ -209,7 +191,7 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
 
   ctx.command('qzone.comment <reference:string> <content:text>', '评论动态', {
     authority: config.commandAuthority,
-  }).alias('评说说').alias('评论说说').action(async ({ session }, reference, content) => {
+  }).alias('评论说说').action(async ({ session }, reference, content) => {
     if (!session) return
     const post = await resolveCommandPost(session, reference)
     await service.comment(post, content)
@@ -218,7 +200,7 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
 
   ctx.command('qzone.reply <reference:string> <commentIndex:number> <content:text>', '回复动态评论', {
     authority: config.commandAuthority,
-  }).alias('回评').alias('回复评论').action(async ({ session }, reference, commentIndex, content) => {
+  }).alias('回复评论').action(async ({ session }, reference, commentIndex, content) => {
     if (!session) return
     const post = await resolveCommandPost(session, reference)
     await service.reply(post, commentIndex, content)
@@ -246,58 +228,7 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
     authority: config.adminAuthority,
   }).alias('查看访客').action(() => service.visitors())
 
-  const scheduledTasks: RandomizedCronTask[] = []
-  if (config.autoCommentCron.trim()) {
-    const task = new RandomizedCronTask(
-      ctx,
-      logger,
-      'Qzone 自动评论',
-      config.autoCommentCron,
-      config.cronTimezone,
-      config.randomOffsetSeconds,
-      async () => {
-        if (!config.autoCommentText.trim()) return
-        const posts = await service.queryFeeds({
-          limit: 20,
-          excludeSelf: true,
-          excludeCommented: true,
-        })
-        for (const post of posts) {
-          await service.comment(post, config.autoCommentText)
-          if (config.autoLikeWithComment) await service.like(post)
-        }
-      },
-    )
-    try {
-      task.start()
-      scheduledTasks.push(task)
-    } catch (error) {
-      logger.warn('自动评论任务配置无效，已禁用：%s', error instanceof Error ? error.message : String(error))
-    }
-  }
-
-  if (config.autoPublishCron.trim()) {
-    const task = new RandomizedCronTask(
-      ctx,
-      logger,
-      'Qzone 自动发布',
-      config.autoPublishCron,
-      config.cronTimezone,
-      config.randomOffsetSeconds,
-      async () => {
-        if (config.autoPublishText.trim()) await service.publish(config.autoPublishText)
-      },
-    )
-    try {
-      task.start()
-      scheduledTasks.push(task)
-    } catch (error) {
-      logger.warn('自动发布任务配置无效，已禁用：%s', error instanceof Error ? error.message : String(error))
-    }
-  }
-
   ctx.on('dispose', async () => {
-    for (const task of scheduledTasks) task.dispose()
     recentPosts.clear()
     await qrCodeAdapter.dispose()
   })

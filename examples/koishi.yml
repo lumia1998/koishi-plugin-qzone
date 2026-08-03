@@ -1,31 +1,5 @@
 # 必须先加载并配置 koishi-plugin-chatluna，确保 chatluna 服务可用。
 plugins:
   qzone:
-    authMode: auto
-    botId: ''
-    manualCookie: ''
-    onebotHttpUrl: ''
-    onebotAccessToken: ''
-    allowInsecureOnebotHttp: false
-    qrCredentialPath: data/qzone/credentials.json
-    qrLoginTimeoutSeconds: 120
-    qrPollIntervalMs: 2000
-    cookieTtlSeconds: 600
-    timeoutMs: 10000
-    defaultFeedCount: 5
-    maxImageBytes: 8388608
-    maxImages: 9
-    allowedImageHosts:
-      - '*.qpic.cn'
-      - '*.qlogo.cn'
-      - '*.qq.com'
-      - '*.gtimg.cn'
     commandAuthority: 1
     adminAuthority: 3
-    autoCommentCron: ''
-    autoCommentText: ''
-    autoLikeWithComment: true
-    autoPublishCron: ''
-    autoPublishText: ''
-    cronTimezone: Asia/Shanghai
-    randomOffsetSeconds: 0

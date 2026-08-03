@@ -4,6 +4,7 @@ import type { Context, Session } from 'koishi'
 import { z } from 'zod'
 
 import type { Config } from './config'
+import { DEFAULT_QZONE_SETTINGS } from './defaults'
 import type { QzoneService } from './service'
 import type { Comment, Post } from './types'
 
@@ -52,7 +53,7 @@ const feedSchema = z.object({
   offset: z.number().int().min(0).default(0)
     .describe('从第几条动态开始，默认 0。'),
   limit: z.number().int().min(1).max(20).optional()
-    .describe('返回动态数量，范围 1 到 20；省略时使用插件配置。'),
+    .describe('返回动态数量，范围 1 到 20；省略时默认返回 5 条。'),
   withDetail: z.boolean().default(false)
     .describe('是否额外查询完整评论。'),
   excludeSelf: z.boolean().default(false)
@@ -290,7 +291,7 @@ function defineTool<Input extends ToolInput>(options: {
 
 export function createQzoneToolDefinitions(
   service: QzoneService,
-  config: Pick<Config, 'commandAuthority' | 'adminAuthority' | 'defaultFeedCount'>,
+  config: Pick<Config, 'commandAuthority' | 'adminAuthority'>,
 ): QzoneToolDefinition[] {
   const readAuthority = config.commandAuthority
   const adminAuthority = config.adminAuthority
@@ -324,7 +325,7 @@ export function createQzoneToolDefinitions(
         const posts = await service.queryFeeds({
           targetId: input.targetUin,
           offset: input.offset,
-          limit: input.limit ?? config.defaultFeedCount,
+          limit: input.limit ?? DEFAULT_QZONE_SETTINGS.defaultFeedCount,
           withDetail: input.withDetail,
           excludeSelf: input.excludeSelf,
           excludeCommented: input.excludeCommented,
@@ -416,7 +417,7 @@ export function createQzoneToolDefinitions(
 export function registerChatLunaTools(
   ctx: Context,
   service: QzoneService,
-  config: Pick<Config, 'commandAuthority' | 'adminAuthority' | 'defaultFeedCount'>,
+  config: Pick<Config, 'commandAuthority' | 'adminAuthority'>,
 ): void {
   const definitions = createQzoneToolDefinitions(service, config)
   const chatluna = (ctx as Context & { chatluna: { platform: ChatLunaPlatform } }).chatluna

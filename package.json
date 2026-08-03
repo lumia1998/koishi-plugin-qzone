@@ -1,7 +1,7 @@
 {
   "name": "koishi-plugin-qzone",
-  "version": "0.0.2",
-  "description": "测试中，不推荐下载。ChatLuna QQ 空间工具，支持 OneBot 与二维码登录",
+  "version": "0.0.3",
+  "description": "测试中，不推荐下载。仅使用二维码登录的 ChatLuna QQ 空间工具",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "exports": {
@@ -18,7 +18,8 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "clean": "node -e \"require('node:fs').rmSync('lib', { recursive: true, force: true })\"",
+    "build": "npm run clean && tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:integration": "npm run build && node tests/integration.cjs",
@@ -29,7 +30,6 @@
     "koishi",
     "qq",
     "qzone",
-    "onebot",
     "chatluna"
   ],
   "license": "GPL-3.0-only",
@@ -70,7 +70,6 @@
   "dependencies": {
     "@langchain/core": "https://codeload.github.com/lumia1998/langchain-core-legacy-safe/tar.gz/894de847dd2b00c858f037dd540089d90828f017",
     "cheerio": "1.0.0",
-    "cron-parser": "^5.4.0",
     "json5": "^2.2.3",
     "tough-cookie": "^6.0.2",
     "undici": "^6.28.0",

@@ -9,7 +9,7 @@ import {
 import type { QzoneService } from '../src/service'
 import { createEmptyPost } from '../src/types'
 
-function createFixture(defaultFeedCount = 5) {
+function createFixture() {
   const post = createEmptyPost({
     id: 12,
     uin: '20002',
@@ -77,7 +77,6 @@ function createFixture(defaultFeedCount = 5) {
   const definitions = createQzoneToolDefinitions(service, {
     commandAuthority: 1,
     adminAuthority: 3,
-    defaultFeedCount,
   })
   return { service, definitions, post }
 }
@@ -138,13 +137,6 @@ describe('ChatLuna Qzone tools', () => {
       excludeSelf: false,
       excludeCommented: false,
     })
-  })
-
-  it('uses the configured feed count when limit is omitted', async () => {
-    const { definitions, service } = createFixture(7)
-    await invoke(findTool(definitions, 'qzone_feed'), {}, 1)
-
-    expect(service.queryFeeds).toHaveBeenCalledWith(expect.objectContaining({ limit: 7 }))
   })
 
   it('returns status without exposing the stored Cookie', async () => {
@@ -267,7 +259,6 @@ describe('ChatLuna Qzone tools', () => {
     registerChatLunaTools(ctx, service, {
       commandAuthority: 1,
       adminAuthority: 3,
-      defaultFeedCount: 5,
     })
     ready?.()
 
