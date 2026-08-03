@@ -1,3 +1,4 @@
+# 必须先加载并配置 koishi-plugin-chatluna，确保 chatluna 服务可用。
 plugins:
   qzone:
     authMode: auto

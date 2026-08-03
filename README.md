@@ -1,7 +1,8 @@
 # koishi-plugin-qzone
 
 使用 TypeScript 编写的 Koishi QQ 空间插件。核心逻辑来自对
-`astrbot_plugin_qzone` 的重新设计，不依赖 Python 运行时。
+`astrbot_plugin_qzone` 的重新设计，不依赖 Python 运行时，并将空间能力注册为
+ChatLuna 原生工具。
 
 ## 已实现
 
@@ -15,6 +16,7 @@
 - Cookie TTL 刷新和登录失效重试
 - JSON、JSONP、JSON5 与好友动态 HTML 解析
 - 发布图片的域名白名单、私网地址拦截、重定向检查和大小限制
+- 9 个 ChatLuna 工具，支持查询、点赞、评论、回复、发布和删除
 
 暂未移植 AstrBot 版本的 LLM 生成、表白墙、图片卡片渲染和 Dashboard。
 
@@ -22,6 +24,7 @@
 
 - Node.js 18 或更高版本
 - Koishi 4.18+
+- 必需 `koishi-plugin-chatluna` 1.3.36+ 或 1.4 alpha
 - 推荐 `@koishijs/plugin-adapter-onebot` 6.0+
 - 可选 Koishi Database 插件
 
@@ -43,8 +46,12 @@ Action，插件会继续尝试 OneBot HTTP、已保存的扫码凭据和手动 C
 在 Koishi 工作区安装本地插件：
 
 ```bash
+npm install koishi-plugin-chatluna
 npm install /path/to/koishi-plugin-qzone
 ```
+
+ChatLuna 是必需服务。Koishi 必须先加载并成功启动 ChatLuna，否则本插件不会
+加载。QQ 空间动态的数据库持久化仍为可选能力。
 
 开发构建：
 
@@ -170,6 +177,31 @@ Cookie 属于登录凭据，应只写入 Koishi 的私密配置。
 点赞、评论等命令中的纯数字引用表示最近一次查询结果的序号。持久化编号
 使用 `#12`，远端引用使用 `12345678:tid`。
 
+## ChatLuna 工具
+
+插件启动时会向 `ctx.chatluna.platform` 注册以下原生工具：
+
+| 工具 | 权限 | 作用 |
+| --- | --- | --- |
+| `qzone_status` | 普通 | 查看登录账号与认证来源，不返回 Cookie |
+| `qzone_feed` | 普通 | 查询好友动态或指定 QQ 的说说 |
+| `qzone_post` | 普通 | 读取已经保存的单条动态 |
+| `qzone_like` | 普通 | 点赞动态 |
+| `qzone_comment` | 普通 | 评论动态 |
+| `qzone_reply` | 普通 | 回复评论 |
+| `qzone_publish` | 管理员 | 发布文字或图片说说 |
+| `qzone_delete` | 管理员 | 删除自己的说说，要求 `confirm: true` |
+| `qzone_visitors` | 管理员 | 查询最近访客 |
+
+普通和管理员分别使用 `commandAuthority`、`adminAuthority` 配置。ChatLuna 在
+选择工具时检查会话权限，工具执行时还会再次检查。点赞、评论、回复和发布的
+工具描述要求模型仅在用户明确提出对应操作时调用。
+动态、评论和访客内容会标记为外部不可信数据，并限制字段长度、评论数量与
+单次工具返回体积；上游 API 异常不会把 Cookie 或 Token 原文透传给模型。
+
+二维码登录、取消登录、刷新 Cookie 和登出不会注册为 ChatLuna 工具，必须由
+管理员通过 Koishi 命令完成。
+
 ## 定时任务
 
 所有 Cron 默认留空，不会主动发布或评论：
@@ -192,6 +224,7 @@ randomOffsetSeconds: 0
 src/
 ├── adapters/       # OneBot、HTTP、二维码、手动 Cookie
 ├── qzone/          # 会话、HTTP、API、解析、图片边界
+├── chatluna.ts     # ChatLuna StructuredTool 注册
 ├── config.ts       # Koishi Schema
 ├── repository.ts   # Database/内存仓库
 ├── service.ts      # 业务服务

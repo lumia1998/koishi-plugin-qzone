@@ -42,6 +42,8 @@ function makeConfig(patch = {}) {
 }
 
 async function main() {
+  assert.deepEqual(plugin.inject.required, ['chatluna'])
+  assert.deepEqual(plugin.inject.optional, ['database'])
   const withoutDatabase = new Context()
   assert.doesNotThrow(() => plugin.apply(withoutDatabase, makeConfig()))
   assert.ok(withoutDatabase.$commander.resolve('qzone.login'))

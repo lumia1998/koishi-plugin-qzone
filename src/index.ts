@@ -10,6 +10,7 @@ import {
   QrCodeCredentialAdapter,
   QrLoginError,
 } from './adapters/qrcode'
+import { registerChatLunaTools } from './chatluna'
 import { formatPost } from './formatter'
 import { createRepository, defineDatabaseModel } from './repository'
 import type { Post, RangeSelection } from './types'
@@ -27,7 +28,7 @@ import {
 } from './utils'
 
 export const name = 'qzone'
-export const inject = { optional: ['database'] }
+export const inject = { required: ['chatluna'], optional: ['database'] }
 export const Config = ConfigSchema
 export interface Config extends QzonePluginConfig {}
 export { ManualCookieAdapter } from './adapters/manual'
@@ -45,6 +46,7 @@ export type {
   QrLoginCallbacks,
   QrLoginChallenge,
 } from './adapters/qrcode'
+export { createQzoneToolDefinitions, registerChatLunaTools } from './chatluna'
 export { QzoneApi } from './qzone/api'
 export { QzoneSession } from './qzone/session'
 export { QzoneService } from './service'
@@ -107,6 +109,7 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
   })
   const service = new QzoneService(api, qzoneSession, repository, downloader, config.maxImages)
   const recentPosts = new Map<string, Post[]>()
+  registerChatLunaTools(ctx, service, config)
 
   async function resolveCommandPost(session: Session, reference = '0'): Promise<Post> {
     const normalized = reference.trim()
