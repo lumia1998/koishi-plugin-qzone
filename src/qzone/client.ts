@@ -16,6 +16,8 @@ export interface QzoneRequestOptions {
   data?: RequestValues
   headers?: Record<string, string>
   timeoutMs?: number
+  /** 写操作遇到 302 时不重试（避免重复提交），默认 undefined 表示重试 */
+  retryOnRedirect?: boolean
 }
 
 function appendValues(target: URLSearchParams, values: RequestValues): void {
@@ -79,6 +81,11 @@ export class QzoneHttpClient {
     }
 
     if (response.status >= 300 && response.status < 400) {
+      if (options.retryOnRedirect === false) {
+        // 写操作：302 通常表示服务端已受理（评论/回复/发布已生效），
+        // 重试会导致重复提交。此处按成功处理，由调用方决定如何解读。
+        return { code: 0, message: 'ok', data: {} }
+      }
       if (retry >= 2) throw new Error('Qzone 接口持续返回登录重定向')
       if (retry === 0) await this.session.getContext(true)
       else await this.session.refreshAfterAuthFailure()

@@ -59,6 +59,7 @@ export class QzoneApi extends QzoneHttpClient {
     return toApiResponse(await this.request('POST', QzoneApi.PUBLISH_URL, {
       params: { g_tk: context.gtk2, uin: context.uin },
       data,
+      retryOnRedirect: false,
     }))
   }
 
@@ -81,6 +82,7 @@ export class QzoneApi extends QzoneHttpClient {
         format: 'json',
         fupdate: 1,
       },
+      retryOnRedirect: false,
     }))
   }
 
@@ -102,6 +104,7 @@ export class QzoneApi extends QzoneHttpClient {
         ref: 'feeds',
         content,
       },
+      retryOnRedirect: false,
     }))
   }
 
@@ -130,6 +133,7 @@ export class QzoneApi extends QzoneHttpClient {
         paramstr: '2',
         qzreferrer: `${QzoneApi.BASE_URL}/${context.uin}/main`,
       },
+      retryOnRedirect: false,
     }))
   }
 
@@ -149,6 +153,7 @@ export class QzoneApi extends QzoneHttpClient {
         ref: 'feeds',
         qzreferrer: `${QzoneApi.BASE_URL}/${context.uin}`,
       },
+      retryOnRedirect: false,
     }))
   }
 
