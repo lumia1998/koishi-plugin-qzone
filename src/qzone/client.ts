@@ -16,7 +16,7 @@ export interface QzoneRequestOptions {
   data?: RequestValues
   headers?: Record<string, string>
   timeoutMs?: number
-  /** 写操作遇到 302 时不重试（避免重复提交），默认 undefined 表示重试 */
+  /** 写操作标志：遇到登录失效（302 重定向或 code=-3000）时不重试，避免重复提交。默认 undefined 表示按读操作逻辑重试 */
   retryOnRedirect?: boolean
 }
 
@@ -100,6 +100,12 @@ export class QzoneHttpClient {
       || asNumber(data.ret) === QZONE_CODE_IMAGE_EXPIRED
 
     if (expired) {
+      if (options.retryOnRedirect === false) {
+        // 写操作：QQ 空间写接口在 Cookie 过期时仍会执行成功
+        // （评论/回复/点赞/发布实际已生效），但返回 code=-3000 提示登录。
+        // 重试会导致重复提交，此处按成功处理，由调用方决定如何解读。
+        return { code: 0, message: 'ok', data: {} }
+      }
       if (retry >= 2) throw new Error('Qzone 登录状态刷新后仍然失效')
       if (retry === 0) await this.session.getContext(true)
       else await this.session.refreshAfterAuthFailure()
