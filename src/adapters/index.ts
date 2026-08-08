@@ -7,7 +7,6 @@ import { KoishiOneBotAdapter } from './onebot'
 
 export class AutoCredentialAdapter implements CredentialAdapter {
   readonly name = 'auto'
-  private skipSourceOnce?: string
 
   constructor(
     private readonly onebot: CredentialAdapter,
@@ -15,16 +14,13 @@ export class AutoCredentialAdapter implements CredentialAdapter {
   ) {}
 
   async getCredential(): Promise<CredentialResult> {
-    const skipped = this.skipSourceOnce
-    this.skipSourceOnce = undefined
+    // 优先 OneBot：get_cookies 每次都会从 QQ 客户端实时拿最新 cookie
     let onebotError: unknown
 
-    if (skipped !== this.onebot.name) {
-      try {
-        return await this.onebot.getCredential()
-      } catch (error) {
-        onebotError = error
-      }
+    try {
+      return await this.onebot.getCredential()
+    } catch (error) {
+      onebotError = error
     }
 
     try {
@@ -39,10 +35,9 @@ export class AutoCredentialAdapter implements CredentialAdapter {
   }
 
   async invalidateCredential(source?: string): Promise<void> {
-    if (source === this.onebot.name) {
-      this.skipSourceOnce = source
-      return
-    }
+    // OneBot cookie 失效时应重新从 OneBot 获取新 cookie（get_cookies 实时返回），
+    // 而不是跳过 OneBot 转向 QR 登录——QR 通常不可用，会导致重试必然失败。
+    if (source === this.onebot.name) return
     await this.qrcode.invalidateCredential?.(source)
   }
 }

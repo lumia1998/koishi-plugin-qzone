@@ -85,7 +85,7 @@ describe('OneBot credential adapters', () => {
       .resolves.toMatchObject({ source: 'qrcode' })
   })
 
-  it('skips a failed OneBot source once before restoring normal priority', async () => {
+  it('refreshes from OneBot after invalidation instead of skipping it', async () => {
     const onebot: CredentialAdapter = {
       name: 'onebot',
       getCredential: vi.fn(async () => ({ cookie: COOKIE, source: 'onebot' })),
@@ -98,7 +98,8 @@ describe('OneBot credential adapters', () => {
 
     await expect(adapter.getCredential()).resolves.toMatchObject({ source: 'onebot' })
     await adapter.invalidateCredential('onebot')
-    await expect(adapter.getCredential()).resolves.toMatchObject({ source: 'qrcode' })
+    // OneBot cookie 失效后应重新从 OneBot 获取新 cookie（get_cookies 实时返回），
+    // 而不是跳过 OneBot 转向 QR 登录
     await expect(adapter.getCredential()).resolves.toMatchObject({ source: 'onebot' })
   })
 
