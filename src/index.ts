@@ -117,7 +117,7 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
   }
 
   ctx.command('qzone.status', '查看 QQ 空间登录状态', {
-    authority: config.commandAuthority,
+    authority: 1,
   }).alias('空间状态').action(async () => {
     const context = await qzoneSession.getContext()
     const source = context.credentials.source === 'onebot' ? 'OneBot' : '二维码'
@@ -125,7 +125,7 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
   })
 
   ctx.command('qzone.login', '使用 QQ 二维码登录空间', {
-    authority: config.adminAuthority,
+    authority: 3,
   }).alias('扫码登录空间')
     .option('cancel', '--cancel 取消正在进行的扫码登录')
     .action(async ({ session, options }) => {
@@ -154,7 +154,7 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
     })
 
   ctx.command('qzone.logout', '清除插件保存的 QQ 空间扫码凭据', {
-    authority: config.adminAuthority,
+    authority: 3,
   }).alias('退出空间登录').action(async () => {
     try {
       await qrCodeAdapter.clearCredential()
@@ -166,7 +166,7 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
   })
 
   ctx.command('qzone.feed [range:string]', '查看 QQ 空间动态', {
-    authority: config.commandAuthority,
+    authority: 1,
   }).alias('看说说')
     .option('user', '-u <user:string> 指定 QQ 号')
     .option('detail', '-d 获取完整评论')
@@ -186,7 +186,7 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
     })
 
   ctx.command('qzone.like [reference:string]', '点赞动态，默认最近查询的第 0 条', {
-    authority: config.commandAuthority,
+    authority: 1,
   }).alias('赞说说').action(async ({ session }, reference) => {
     if (!session) return
     const post = await resolveCommandPost(session, reference)
@@ -195,7 +195,7 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
   })
 
   ctx.command('qzone.comment <reference:string> <content:text>', '评论动态', {
-    authority: config.commandAuthority,
+    authority: 1,
   }).alias('评论说说').action(async ({ session }, reference, content) => {
     if (!session) return
     const post = await resolveCommandPost(session, reference)
@@ -204,7 +204,7 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
   })
 
   ctx.command('qzone.reply <reference:string> <commentIndex:number> <content:text>', '回复动态评论', {
-    authority: config.commandAuthority,
+    authority: 1,
   }).alias('回复评论').action(async ({ session }, reference, commentIndex, content) => {
     if (!session) return
     const post = await resolveCommandPost(session, reference)
@@ -213,7 +213,7 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
   })
 
   ctx.command('qzone.publish <content:text>', '发布 QQ 空间说说', {
-    authority: config.adminAuthority,
+    authority: 3,
   }).alias('发说说').action(async ({ session }, content) => {
     if (!session) return
     const post = await service.publish(content, collectImageSources(session))
@@ -221,7 +221,7 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
   })
 
   ctx.command('qzone.delete <reference:string>', '删除当前账号发布的说说', {
-    authority: config.adminAuthority,
+    authority: 3,
   }).alias('删说说').action(async ({ session }, reference) => {
     if (!session) return
     const post = await resolveCommandPost(session, reference)
@@ -230,7 +230,7 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
   })
 
   ctx.command('qzone.visitors', '查看最近访客', {
-    authority: config.adminAuthority,
+    authority: 3,
   }).alias('查看访客').action(() => service.visitors())
 
   ctx.on('dispose', async () => {

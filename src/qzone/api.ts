@@ -1,8 +1,9 @@
 import type { ApiResponse, Comment, Post } from '../types'
-import { asRecord, asString } from '../types'
+import { asNumber, asRecord, asString } from '../types'
 import { QzoneHttpClient } from './client'
 import { parseUploadResult } from './parser'
 import { toApiResponse } from './response'
+import { QZONE_CODE_OK } from './constants'
 
 export class QzoneApi extends QzoneHttpClient {
   static readonly BASE_URL = 'https://user.qzone.qq.com'
@@ -88,7 +89,10 @@ export class QzoneApi extends QzoneHttpClient {
 
   async comment(post: Post, content: string): Promise<ApiResponse> {
     const context = await this.session.getContext()
-    return toApiResponse(await this.request('POST', QzoneApi.COMMENT_URL, {
+    // QQ 空间评论接口：即使返回非零 code，评论实际也已生效。
+    // 与 302/-3000 同理（见 client.ts），这里不再做 code 校验，
+    // 直接按成功返回，避免 ChatLuna 工具误报"接口失败"。
+    const raw = await this.request('POST', QzoneApi.COMMENT_URL, {
       params: { g_tk: context.gtk2 },
       data: {
         topicId: `${post.uin}_${post.tid}__1`,
@@ -105,7 +109,13 @@ export class QzoneApi extends QzoneHttpClient {
         content,
       },
       retryOnRedirect: false,
-    }))
+    })
+    return {
+      ok: true,
+      code: asNumber(raw.code, QZONE_CODE_OK),
+      data: asRecord(raw.data),
+      raw,
+    }
   }
 
   async reply(post: Post, comment: Comment, content: string): Promise<ApiResponse> {

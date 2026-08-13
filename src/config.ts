@@ -5,8 +5,6 @@ import type { AuthMode } from './types'
 export interface Config {
   authMode: AuthMode
   onebotSelfId?: string
-  commandAuthority: number
-  adminAuthority: number
 }
 
 function onebotSelfIdSchema() {
@@ -21,11 +19,6 @@ const authMode = Schema.union([
   Schema.const('onebot').description('仅使用指定 OneBot 机器人'),
   Schema.const('qrcode').description('仅使用二维码凭据'),
 ]).default('auto').description('认证方式')
-
-const permissions = Schema.object({
-  commandAuthority: Schema.number().min(0).max(5).default(1).description('查询、点赞、评论命令与工具权限'),
-  adminAuthority: Schema.number().min(0).max(5).default(3).description('扫码登录、发布和删除命令与工具权限'),
-}).description('权限')
 
 export const Config = Schema.intersect([
   Schema.object({ authMode }).description('认证'),
@@ -42,5 +35,4 @@ export const Config = Schema.intersect([
       authMode: Schema.const('qrcode').required(),
     }),
   ]),
-  permissions,
 ]) as Schema<Config>
