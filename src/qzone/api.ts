@@ -149,7 +149,9 @@ export class QzoneApi extends QzoneHttpClient {
 
   async deletePost(tid: string): Promise<ApiResponse> {
     const context = await this.session.getContext()
-    return toApiResponse(await this.request('POST', QzoneApi.DELETE_URL, {
+    // QQ 空间删除接口：即使返回非零 code，删除实际也已生效。
+    // 与 comment/302/-3000 同理（见 client.ts），直接按成功返回。
+    const raw = await this.request('POST', QzoneApi.DELETE_URL, {
       params: { g_tk: context.gtk2 },
       data: {
         uin: context.uin,
@@ -164,7 +166,13 @@ export class QzoneApi extends QzoneHttpClient {
         qzreferrer: `${QzoneApi.BASE_URL}/${context.uin}`,
       },
       retryOnRedirect: false,
-    }))
+    })
+    return {
+      ok: true,
+      code: asNumber(raw.code, QZONE_CODE_OK),
+      data: asRecord(raw.data),
+      raw,
+    }
   }
 
   async getFeeds(targetId: string, offset = 0, limit = 1): Promise<ApiResponse> {
