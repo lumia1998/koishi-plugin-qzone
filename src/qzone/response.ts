@@ -9,6 +9,8 @@ import {
 
 export interface ApiResponseOptions {
   codeKey?: string
+  /** 按顺序检查多个字段，取第一个存在的值作为 code。优先级高于 codeKey */
+  codeKeys?: string[]
   messageKeys?: string[]
   dataKey?: string
   successCode?: number
@@ -18,10 +20,16 @@ export function toApiResponse(
   raw: Record<string, unknown>,
   options: ApiResponseOptions = {},
 ): ApiResponse {
-  const codeKey = options.codeKey || 'code'
+  const codeKeys = options.codeKeys || [options.codeKey || 'code']
   const messageKeys = options.messageKeys || ['message', 'msg']
   const successCode = options.successCode ?? QZONE_CODE_OK
-  const code = asNumber(raw[codeKey], QZONE_CODE_UNKNOWN)
+  let code = QZONE_CODE_UNKNOWN
+  for (const key of codeKeys) {
+    if (key in raw) {
+      code = asNumber(raw[key], QZONE_CODE_UNKNOWN)
+      break
+    }
+  }
   const meta = asRecord(raw[QZONE_META_KEY])
   const statusValue = Number(meta[QZONE_HTTP_STATUS_KEY])
   const httpStatus = Number.isInteger(statusValue) ? statusValue : undefined

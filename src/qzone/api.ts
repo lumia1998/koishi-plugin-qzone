@@ -61,7 +61,7 @@ export class QzoneApi extends QzoneHttpClient {
       params: { g_tk: context.gtk2, uin: context.uin },
       data,
       retryOnRedirect: false,
-    }))
+    }), { codeKeys: ['ret', 'code', 'err', 'error'] })
   }
 
   async like(post: Post): Promise<ApiResponse> {
@@ -84,15 +84,14 @@ export class QzoneApi extends QzoneHttpClient {
         fupdate: 1,
       },
       retryOnRedirect: false,
-    }))
+    }), { codeKeys: ['ret', 'code', 'err', 'error'] })
   }
 
   async comment(post: Post, content: string): Promise<ApiResponse> {
     const context = await this.session.getContext()
     // QQ 空间评论接口：即使返回非零 code，评论实际也已生效。
-    // 与 302/-3000 同理（见 client.ts），这里不再做 code 校验，
-    // 直接按成功返回，避免 ChatLuna 工具误报"接口失败"。
-    const raw = await this.request('POST', QzoneApi.COMMENT_URL, {
+    // 用 codeKeys 多字段检查兼容 ret/code 混合格式，避免误报失败。
+    return toApiResponse(await this.request('POST', QzoneApi.COMMENT_URL, {
       params: { g_tk: context.gtk2 },
       data: {
         topicId: `${post.uin}_${post.tid}__1`,
@@ -109,13 +108,7 @@ export class QzoneApi extends QzoneHttpClient {
         content,
       },
       retryOnRedirect: false,
-    })
-    return {
-      ok: true,
-      code: asNumber(raw.code, QZONE_CODE_OK),
-      data: asRecord(raw.data),
-      raw,
-    }
+    }), { codeKeys: ['ret', 'code', 'err', 'error'] })
   }
 
   async reply(post: Post, comment: Comment, content: string): Promise<ApiResponse> {
@@ -144,14 +137,12 @@ export class QzoneApi extends QzoneHttpClient {
         qzreferrer: `${QzoneApi.BASE_URL}/${context.uin}/main`,
       },
       retryOnRedirect: false,
-    }))
+    }), { codeKeys: ['ret', 'code', 'err', 'error'] })
   }
 
   async deletePost(tid: string): Promise<ApiResponse> {
     const context = await this.session.getContext()
-    // QQ 空间删除接口：即使返回非零 code，删除实际也已生效。
-    // 与 comment/302/-3000 同理（见 client.ts），直接按成功返回。
-    const raw = await this.request('POST', QzoneApi.DELETE_URL, {
+    return toApiResponse(await this.request('POST', QzoneApi.DELETE_URL, {
       params: { g_tk: context.gtk2 },
       data: {
         uin: context.uin,
@@ -166,13 +157,7 @@ export class QzoneApi extends QzoneHttpClient {
         qzreferrer: `${QzoneApi.BASE_URL}/${context.uin}`,
       },
       retryOnRedirect: false,
-    })
-    return {
-      ok: true,
-      code: asNumber(raw.code, QZONE_CODE_OK),
-      data: asRecord(raw.data),
-      raw,
-    }
+    }), { codeKeys: ['code', 'ret', 'err', 'error'] })
   }
 
   async getFeeds(targetId: string, offset = 0, limit = 1): Promise<ApiResponse> {
