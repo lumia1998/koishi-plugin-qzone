@@ -32,6 +32,8 @@ export class QzoneHttpClient {
     protected readonly session: QzoneSession,
     private readonly defaultTimeoutMs: number,
     private readonly fetchImpl: typeof globalThis.fetch = globalThis.fetch,
+    protected readonly logger?: import('koishi').Logger,
+    protected readonly debugLogging = false,
   ) {}
 
   async request(
@@ -80,10 +82,17 @@ export class QzoneHttpClient {
       clearTimeout(timeout)
     }
 
+    if (this.debugLogging) {
+      const safeUrl = url.split('?')[0]
+      this.logger?.debug('[qzone] %s %s -> %s', method, safeUrl, response.status)
+      if (text) this.logger?.debug('[qzone] 响应: %s', text.slice(0, 500))
+    }
+
     if (response.status >= 300 && response.status < 400) {
       if (options.retryOnRedirect === false) {
         // 写操作：302 通常表示服务端已受理（评论/回复/发布已生效），
         // 重试会导致重复提交。此处按成功处理，由调用方决定如何解读。
+        if (this.debugLogging) this.logger?.debug('[qzone] 写操作收到 %s，按成功处理', response.status)
         return { code: 0, message: 'ok', data: {} }
       }
       if (retry >= 2) throw new Error('Qzone 接口持续返回登录重定向')
@@ -104,6 +113,7 @@ export class QzoneHttpClient {
         // 写操作：QQ 空间写接口在 Cookie 过期时仍会执行成功
         // （评论/回复/点赞/发布实际已生效），但返回 code=-3000 提示登录。
         // 重试会导致重复提交，此处按成功处理，由调用方决定如何解读。
+        if (this.debugLogging) this.logger?.debug('[qzone] 写操作 code=-3000 按成功处理')
         return { code: 0, message: 'ok', data: {} }
       }
       if (retry >= 2) throw new Error('Qzone 登录状态刷新后仍然失效')

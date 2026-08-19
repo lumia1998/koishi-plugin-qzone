@@ -88,7 +88,7 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
     credentialAdapter,
     DEFAULT_QZONE_SETTINGS.cookieTtlSeconds,
   )
-  const api = new QzoneApi(qzoneSession, DEFAULT_QZONE_SETTINGS.timeoutMs)
+  const api = new QzoneApi(qzoneSession, DEFAULT_QZONE_SETTINGS.timeoutMs, globalThis.fetch, ctx.logger('qzone'), config.debugLogging)
   const repository = createRepository(ctx)
   const downloader = new SafeImageDownloader({
     allowedHosts: [...DEFAULT_QZONE_SETTINGS.allowedImageHosts],
