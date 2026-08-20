@@ -40,4 +40,5 @@ export const Config = Schema.intersect([
       authMode: Schema.const('qrcode').required(),
     }),
   ]),
+  Schema.object({ debugLogging }).description('调试'),
 ]) as Schema<Config>

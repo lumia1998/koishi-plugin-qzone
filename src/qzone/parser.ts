@@ -50,15 +50,24 @@ export function parseResponse(text: string): Record<string, unknown> {
 
   const start = text.indexOf('{')
   const end = text.lastIndexOf('}')
-  if (start < 0 || end < start) return errorPayload(QZONE_ERROR.invalid)
+  if (start < 0 || end < start) {
+    // 无 JSON 对象：通常是 HTML 页面（登录页/风控页/验证页）
+    return errorPayload(`${QZONE_ERROR.invalid}：${preview(text)}`)
+  }
 
   const candidate = text.slice(start, end + 1).replace(/\bundefined\b/g, 'null')
   try {
     const parsed: unknown = JSON5.parse(candidate)
-    return isRecord(parsed) ? parsed : errorPayload(QZONE_ERROR.nonObject)
+    return isRecord(parsed) ? parsed : errorPayload(`${QZONE_ERROR.nonObject}：${preview(text)}`)
   } catch {
-    return errorPayload(QZONE_ERROR.parse)
+    return errorPayload(`${QZONE_ERROR.parse}：${preview(text)}`)
   }
+}
+
+function preview(text: string, maxLength = 160): string {
+  const normalized = text.trim().replace(/\s+/g, ' ')
+  if (normalized.length <= maxLength) return normalized
+  return `${normalized.slice(0, maxLength)}...`
 }
 
 export function parseUploadResult(payload: Record<string, unknown>): {
