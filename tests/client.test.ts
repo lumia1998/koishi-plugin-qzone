@@ -56,6 +56,54 @@ describe('QzoneHttpClient', () => {
     expect(result).toMatchObject({ code: 403, message: '权限不足' })
   })
 
+  it('adapts the known Qzone proxy HTML response only for opted-in writes', async () => {
+    const adapter: CredentialAdapter = {
+      name: 'test',
+      async getCredential() {
+        return { cookie: 'uin=o10001; skey=s; p_skey=p', source: 'test' }
+      },
+    }
+    const html = '<html><head><meta charset="UTF-8"></head><body><script>document.domain="user.qzone.qq.com"</script></body></html>'
+    const plainHtml = '<html><head><meta charset="UTF-8"></head><body>accepted</body></html>'
+    let requestCalls = 0
+    const fetchMock = vi.fn(async () => {
+      requestCalls += 1
+      return new Response(requestCalls === 1 ? html : plainHtml, { status: 200 })
+    }) as typeof fetch
+    const client = new QzoneHttpClient(
+      new QzoneSession(adapter, 600),
+      1000,
+      fetchMock,
+    )
+
+    const accepted = await client.request('POST', 'https://user.qzone.qq.com/comment', {
+      data: { content: 'hello' },
+      retryOnRedirect: false,
+      acceptQzoneProxyHtml: true,
+    })
+    expect(accepted).toMatchObject({
+      code: 0,
+      message: 'accepted',
+      data: { responseUncertain: true },
+    })
+
+    const rejected = await client.request('GET', 'https://user.qzone.qq.com/feed')
+    expect(rejected).toMatchObject({
+      code: -1,
+      message: expect.stringContaining('响应内容格式异常'),
+    })
+
+    const genericResponse = await client.request('POST', 'https://user.qzone.qq.com/comment', {
+      data: { content: 'hello' },
+      retryOnRedirect: false,
+      acceptQzoneProxyHtml: true,
+    })
+    expect(genericResponse).toMatchObject({
+      code: -1,
+      message: expect.stringContaining('响应内容格式异常'),
+    })
+  })
+
   it('never follows redirects while carrying Qzone cookies', async () => {
     const adapter: CredentialAdapter = {
       name: 'test',

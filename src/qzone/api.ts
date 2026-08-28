@@ -108,6 +108,7 @@ export class QzoneApi extends QzoneHttpClient {
         content,
       },
       retryOnRedirect: false,
+      acceptQzoneProxyHtml: true,
     }), { codeKeys: ['ret', 'code', 'err', 'error'] })
   }
 

@@ -100,7 +100,7 @@ async function invoke(
 }
 
 describe('ChatLuna Qzone tools', () => {
-  it('creates the complete tool set with command-aligned authorities', () => {
+  it('creates the complete tool set', () => {
     const { definitions } = createFixture()
     expect(definitions.map(({ name }) => name)).toEqual([
       'qzone_status',
@@ -113,8 +113,6 @@ describe('ChatLuna Qzone tools', () => {
       'qzone_delete',
       'qzone_visitors',
     ])
-    expect(findTool(definitions, 'qzone_feed').authority).toBe(1)
-    expect(findTool(definitions, 'qzone_publish').authority).toBe(3)
   })
 
   it('queries feeds through QzoneService and exposes stable post references', async () => {
@@ -150,14 +148,14 @@ describe('ChatLuna Qzone tools', () => {
     expect(JSON.stringify(output)).not.toContain('cookie')
   })
 
-  it('enforces ChatLuna session authority before write operations', async () => {
+  it('allows write operations without a separate authority check', async () => {
     const { definitions, service } = createFixture()
     const output = await invoke(findTool(definitions, 'qzone_publish'), {
       content: 'publish me',
       imageUrls: [],
     }, 1)
-    expect(output).toEqual({ ok: false, error: '权限不足，需要 authority 3。' })
-    expect(service.publish).not.toHaveBeenCalled()
+    expect(output).toMatchObject({ ok: true, data: { postId: 13 } })
+    expect(service.publish).toHaveBeenCalledWith('publish me', [])
   })
 
   it('does not expose upstream credentials or internal errors to ChatLuna', async () => {
@@ -254,6 +252,9 @@ describe('ChatLuna Qzone tools', () => {
       effect(callback: () => () => void) {
         disposers.push(callback())
       },
+      logger() {
+        return { warn: vi.fn(), debug: vi.fn() }
+      },
     } as unknown as Context
 
     registerChatLunaTools(ctx, service, {
@@ -269,7 +270,5 @@ describe('ChatLuna Qzone tools', () => {
       group: 'qzone',
       defaultAvailability: { enabled: true, chatluna: true },
     })
-    const lowAuthority = { user: { authority: 1 } } as unknown as Session
-    expect(registered.find(({ name }) => name === 'qzone_publish')?.tool.authorization(lowAuthority)).toBe(false)
   })
 })

@@ -20,6 +20,23 @@ const MAX_MEDIA_URL_LENGTH = 512
 const MAX_COMMENTS = 10
 const GENERIC_TOOL_ERROR = 'QQ 空间工具调用失败，请稍后重试。'
 const TOOL_OUTPUT_TOO_LARGE = 'QQ 空间返回内容过大，请减少查询数量或关闭 withDetail。'
+
+const PUBLIC_ERROR_PATTERNS = [
+  /^必须提供 postId，或者同时提供 uin 和 tid。$/,
+  /^删除操作需要 confirm=true。$/,
+  /^未找到动态，请先执行看说说或使用 uin:tid$/,
+  /^动态缺少 tid$/,
+  /^评论内容不能为空$/,
+  /^回复内容不能为空$/,
+  /^评论序号越界，当前可回复 \d+ 条$/,
+  /^说说内容和图片不能同时为空$/,
+  /^单次最多发布 \d+ 张图片$/,
+  /^仅能删除当前账号发布的说说$/,
+  /^登录状态失效，请刷新 Cookie 后重试$/,
+  /^无权限查看 QQ \d+ 的说说$/,
+  /^无权限访问好友动态$/,
+  /^查询说说失败：code=-?\d+$/,
+]
 const postReferenceShape = {
   postId: z.number().int().positive().optional()
     .describe('本地动态编号，例如 qzone_feed 返回的 postId。'),
@@ -141,7 +158,8 @@ function success(data: unknown): string {
 function failure(error: unknown, logger?: import('koishi').Logger): string {
   const rawMessage = error instanceof Error ? error.message : String(error || '')
   logger?.warn('[qzone] tool error: %s', rawMessage)
-  return JSON.stringify({ ok: false, error: rawMessage })
+  const isPublic = PUBLIC_ERROR_PATTERNS.some((pattern) => pattern.test(rawMessage))
+  return JSON.stringify({ ok: false, error: isPublic ? rawMessage : GENERIC_TOOL_ERROR })
 }
 
 function resolveReference(input: ToolReference): { id?: number, uin?: string, tid?: string } {

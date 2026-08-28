@@ -10,7 +10,10 @@ describe('Qzone parser', () => {
 
   it('returns structured errors for empty and malformed responses', () => {
     expect(parseResponse('')).toMatchObject({ code: -1, message: '响应内容为空' })
-    expect(parseResponse('<html>denied</html>')).toMatchObject({ code: -1, message: '响应内容格式异常' })
+    expect(parseResponse('<html>denied</html>')).toMatchObject({
+      code: -1,
+      message: expect.stringContaining('响应内容格式异常'),
+    })
   })
 
   it('maps normal feeds, nested comments, images, and videos', () => {

@@ -18,6 +18,8 @@ export interface QzoneRequestOptions {
   timeoutMs?: number
   /** 写操作标志：遇到登录失效（302 重定向或 code=-3000）时不重试，避免重复提交。默认 undefined 表示按读操作逻辑重试 */
   retryOnRedirect?: boolean
+  /** Qzone proxy 写接口可能已执行操作，但返回特定 HTML 外壳而不是 JSON。仅对明确的写接口启用。 */
+  acceptQzoneProxyHtml?: boolean
 }
 
 function appendValues(target: URLSearchParams, values: RequestValues): void {
@@ -25,6 +27,12 @@ function appendValues(target: URLSearchParams, values: RequestValues): void {
     if (value === null || value === undefined) continue
     target.set(key, String(value))
   }
+}
+
+function isQzoneProxyHtml(text: string): boolean {
+  const normalized = text.trimStart().toLowerCase()
+  return (normalized.startsWith('<!doctype html') || normalized.startsWith('<html'))
+    && normalized.includes('document.domain="user.qzone.qq.com"')
 }
 
 export class QzoneHttpClient {
@@ -103,6 +111,26 @@ export class QzoneHttpClient {
 
     const parsed = parseResponse(text)
     parsed[QZONE_META_KEY] = { [QZONE_HTTP_STATUS_KEY]: response.status }
+
+    if (
+      options.acceptQzoneProxyHtml
+      && response.status >= 200
+      && response.status < 300
+      && isQzoneProxyHtml(text)
+    ) {
+      // Qzone 的评论接口可能已经完成写入，但返回一个 HTML 页面，
+      // 继续按 JSON 解析会让 ChatLuna 误以为评论失败并重复提交。
+      if (this.debugLogging) {
+        this.logger?.warn('[qzone] 写操作返回 HTML，按已提交处理；响应无法确认')
+      }
+      return {
+        code: 0,
+        message: 'accepted',
+        data: { responseUncertain: true },
+        [QZONE_META_KEY]: { [QZONE_HTTP_STATUS_KEY]: response.status },
+      }
+    }
+
     const data = asRecord(parsed.data)
     const expired = response.status === 401
       || asNumber(parsed.code) === QZONE_CODE_LOGIN_EXPIRED
