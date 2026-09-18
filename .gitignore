@@ -4,3 +4,4 @@ coverage/
 *.log
 .env
 data/qzone/credentials.json
+data/qzone/temp/

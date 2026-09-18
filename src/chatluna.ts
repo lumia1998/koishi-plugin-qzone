@@ -1,3 +1,4 @@
+import type { MessageContentComplex } from '@langchain/core/messages'
 import { DynamicStructuredTool } from '@langchain/core/tools'
 import type { StructuredTool } from '@langchain/core/tools'
 import type { Context } from 'koishi'
@@ -7,6 +8,7 @@ import type { Config } from './config'
 import { DEFAULT_QZONE_SETTINGS } from './defaults'
 import type { QzoneService } from './service'
 import type { Comment, Post } from './types'
+import type { QzoneImageCache } from './qzone/image-cache'
 
 const emptySchema = z.object({})
 const MAX_TOOL_RESPONSE_BYTES = 64 * 1024
@@ -135,8 +137,15 @@ const QzoneDynamicStructuredTool = DynamicStructuredTool as unknown as new (fiel
   name: string
   description: string
   schema: ToolSchema
-  func(input: ToolInput, runManager?: unknown, runnableConfig?: unknown): Promise<string>
+  func(input: ToolInput, runManager?: unknown, runnableConfig?: unknown): Promise<string | MessageContentComplex[]>
 }) => StructuredTool
+
+type ToolOutput = string | MessageContentComplex[]
+
+interface ToolContentResult {
+  data: unknown
+  content: MessageContentComplex[]
+}
 
 function truncateText(value: string | null | undefined, maxLength: number): string {
   if (value == null) return ''
@@ -158,6 +167,15 @@ function success(data: unknown): string {
   const output = JSON.stringify({ ok: true, data })
   if (Buffer.byteLength(output, 'utf8') <= MAX_TOOL_RESPONSE_BYTES) return output
   return JSON.stringify({ ok: false, error: TOOL_OUTPUT_TOO_LARGE })
+}
+
+function withImageContent(data: unknown, images: MessageContentComplex[]): ToolContentResult {
+  return { data, content: images }
+}
+
+function renderToolOutput(output: string, images: MessageContentComplex[]): ToolOutput {
+  if (!images.length || output.startsWith('{"ok":false')) return output
+  return [{ type: 'text', text: output }, ...images]
 }
 
 function failure(error: unknown, logger?: import('koishi').Logger): string {
@@ -253,7 +271,7 @@ function defineTool<Input extends ToolInput>(options: {
   name: string
   description: string
   schema: ToolSchema
-  execute(input: Input): Promise<unknown>
+  execute(input: Input): Promise<unknown | ToolContentResult>
   logger?: import('koishi').Logger
 }): QzoneToolDefinition {
   return {
@@ -266,7 +284,13 @@ function defineTool<Input extends ToolInput>(options: {
         schema: options.schema,
         async func(input: ToolInput, _runManager?: unknown, _runnableConfig?: unknown) {
           try {
-            return success(await options.execute(input as Input))
+            const result = await options.execute(input as Input)
+            if (result && typeof result === 'object'
+              && 'data' in result && Array.isArray((result as ToolContentResult).content)) {
+              const wrapped = result as ToolContentResult
+              return renderToolOutput(success(wrapped.data), wrapped.content)
+            }
+            return success(result)
           } catch (error) {
             return failure(error, options.logger)
           }
@@ -280,6 +304,7 @@ export function createQzoneToolDefinitions(
   service: QzoneService,
   _config: Config,
   logger?: import('koishi').Logger,
+  imageCache?: QzoneImageCache,
 ): QzoneToolDefinition[] {
 
   return [
@@ -317,7 +342,10 @@ export function createQzoneToolDefinitions(
           excludeCommented: input.excludeCommented,
         })
         const selfUin = await service.session.getUin()
-        return posts.map((post) => serializePost(post, selfUin))
+        const images = imageCache
+          ? await imageCache.createContent(posts.flatMap((post) => post.images))
+          : []
+        return withImageContent(posts.map((post) => serializePost(post, selfUin)), images)
       },
     }),
     defineTool<PostInput>({
@@ -327,7 +355,8 @@ export function createQzoneToolDefinitions(
       logger,
       async execute(input) {
         const post = await service.resolvePost(resolveReference(input))
-        return serializePost(post, await service.session.getUin())
+        const images = imageCache ? await imageCache.createContent(post.images) : []
+        return withImageContent(serializePost(post, await service.session.getUin()), images)
       },
     }),
     defineTool<LikeInput>({
@@ -404,9 +433,10 @@ export function registerChatLunaTools(
   ctx: Context,
   service: QzoneService,
   config: Config,
+  imageCache?: QzoneImageCache,
 ): void {
   const logger = ctx.logger('qzone')
-  const definitions = createQzoneToolDefinitions(service, config, logger)
+  const definitions = createQzoneToolDefinitions(service, config, logger, imageCache)
   const chatluna = (ctx as Context & { chatluna: { platform: ChatLunaPlatform } }).chatluna
   ctx.on('ready', () => {
     for (const definition of definitions) {

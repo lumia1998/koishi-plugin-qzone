@@ -137,6 +137,33 @@ describe('ChatLuna Qzone tools', () => {
     })
   })
 
+  it('adds downloaded feed images as multimodal tool content', async () => {
+    const { service, post } = createFixture()
+    post.images = ['https://a.qpic.cn/image.jpg']
+    const imageContent = [{
+      type: 'image_url' as const,
+      image_url: { url: 'data:image/png;base64,AQID', detail: 'low' as const },
+    }]
+    const imageCache = {
+      createContent: vi.fn(async () => imageContent),
+    }
+    const definitions = createQzoneToolDefinitions(
+      service,
+      {} as any,
+      undefined,
+      imageCache as any,
+    )
+    const raw = await (findTool(definitions, 'qzone_feed').createTool() as any).invoke({}, {
+      configurable: { session: { user: { authority: 1 } } },
+    })
+
+    expect(raw).toEqual([
+      { type: 'text', text: expect.stringContaining('"images":["https://a.qpic.cn/image.jpg"]') },
+      ...imageContent,
+    ])
+    expect(imageCache.createContent).toHaveBeenCalledWith(['https://a.qpic.cn/image.jpg'])
+  })
+
   it('returns status without exposing the stored Cookie', async () => {
     const { definitions } = createFixture()
     const output = await invoke(findTool(definitions, 'qzone_status'), {}, 1)

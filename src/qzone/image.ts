@@ -51,28 +51,98 @@ export function matchesAllowedHost(hostname: string, patterns: string[]): boolea
   })
 }
 
+export function detectImageMimeType(data: Uint8Array, source = ''): string | undefined {
+  if (data.length >= 8
+    && data[0] === 0x89 && data[1] === 0x50 && data[2] === 0x4e && data[3] === 0x47
+    && data[4] === 0x0d && data[5] === 0x0a && data[6] === 0x1a && data[7] === 0x0a) {
+    return 'image/png'
+  }
+  if (data.length >= 3 && data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff) {
+    return 'image/jpeg'
+  }
+  if (data.length >= 6) {
+    const header = Buffer.from(data.subarray(0, 6)).toString('ascii')
+    if (header === 'GIF87a' || header === 'GIF89a') return 'image/gif'
+  }
+  if (data.length >= 12) {
+    const header = Buffer.from(data.subarray(0, 12)).toString('ascii')
+    if (header.slice(0, 4) === 'RIFF' && header.slice(8, 12) === 'WEBP') {
+      return 'image/webp'
+    }
+    if (header.slice(4, 12) === 'ftypavif' || header.slice(4, 12) === 'ftypavis') {
+      return 'image/avif'
+    }
+  }
+  if (data.length >= 2 && data[0] === 0x42 && data[1] === 0x4d) return 'image/bmp'
+
+  try {
+    const extension = new URL(source).pathname.split('.').pop()?.toLowerCase()
+    return {
+      jpg: 'image/jpeg',
+      jpeg: 'image/jpeg',
+      png: 'image/png',
+      gif: 'image/gif',
+      webp: 'image/webp',
+      avif: 'image/avif',
+      bmp: 'image/bmp',
+    }[extension || '']
+  } catch {
+    return undefined
+  }
+}
+
+export function detectVideoMimeType(data: Uint8Array, source = ''): string | undefined {
+  if (data.length >= 12) {
+    const header = Buffer.from(data.subarray(0, 12)).toString('ascii')
+    if (header.slice(4, 8) === 'ftyp') {
+      return header.slice(8, 12) === 'qt  ' ? 'video/quicktime' : 'video/mp4'
+    }
+  }
+  if (data.length >= 4) {
+    const header = Buffer.from(data.subarray(0, 4)).toString('ascii')
+    if (header === 'OggS') return 'video/ogg'
+    if (data[0] === 0x1a && data[1] === 0x45 && data[2] === 0xdf && data[3] === 0xa3) {
+      return 'video/webm'
+    }
+  }
+
+  try {
+    const extension = new URL(source).pathname.split('.').pop()?.toLowerCase()
+    return {
+      mp4: 'video/mp4',
+      m4v: 'video/x-m4v',
+      mov: 'video/quicktime',
+      webm: 'video/webm',
+      ogv: 'video/ogg',
+      ogg: 'video/ogg',
+    }[extension || '']
+  } catch {
+    return undefined
+  }
+}
+
 async function validateRemoteUrl(url: URL, allowedHosts: string[]): Promise<LookupAddress[]> {
   if (!['http:', 'https:'].includes(url.protocol)) {
-    throw new Error(`不支持的图片协议：${url.protocol}`)
+    throw new Error(`不支持的媒体协议：${url.protocol}`)
   }
-  if (url.username || url.password) throw new Error('图片 URL 不允许携带用户信息')
+  if (url.username || url.password) throw new Error('媒体 URL 不允许携带用户信息')
   if (!matchesAllowedHost(url.hostname, allowedHosts)) {
-    throw new Error(`图片域名不在白名单：${url.hostname}`)
+    throw new Error(`媒体域名不在白名单：${url.hostname}`)
   }
 
   if (isIP(url.hostname)) {
     if (isPrivateIpv4(url.hostname) || isPrivateIpv6(url.hostname)) {
-      throw new Error('图片 URL 指向私网地址')
+      throw new Error('媒体 URL 指向私网地址')
     }
     return [{ address: url.hostname, family: isIP(url.hostname) }]
   }
 
   const addresses = await lookup(url.hostname, { all: true, verbatim: true })
-  if (!addresses.length) throw new Error('图片域名没有可用地址')
+  if (!addresses.length) throw new Error('媒体域名没有可用地址')
   if (addresses.some(({ address, family }) => family === 4
     ? isPrivateIpv4(address)
     : isPrivateIpv6(address))) {
-    throw new Error('图片域名解析到私网地址')
+    throw new Error('媒体域名解析到私网地址')
   }
   return addresses
 }
@@ -90,9 +160,9 @@ function createPinnedAgent(addresses: LookupAddress[]): Agent {
   return new Agent({ connect: { lookup: pinnedLookup } })
 }
 
-async function readLimited(response: Response, maxBytes: number): Promise<Uint8Array> {
+async function readLimited(response: Response, maxBytes: number, label: string): Promise<Uint8Array> {
   const declaredLength = Number(response.headers.get('content-length') || 0)
-  if (declaredLength > maxBytes) throw new Error(`图片超过 ${maxBytes} 字节限制`)
+  if (declaredLength > maxBytes) throw new Error(`${label}超过 ${maxBytes} 字节限制`)
   if (!response.body) return new Uint8Array()
 
   const reader = response.body.getReader()
@@ -104,7 +174,7 @@ async function readLimited(response: Response, maxBytes: number): Promise<Uint8A
     total += value.byteLength
     if (total > maxBytes) {
       await reader.cancel()
-      throw new Error(`图片超过 ${maxBytes} 字节限制`)
+      throw new Error(`${label}超过 ${maxBytes} 字节限制`)
     }
     chunks.push(value)
   }
@@ -125,11 +195,15 @@ export interface ImageDownloaderOptions {
   fetch?: typeof globalThis.fetch
 }
 
-export class SafeImageDownloader {
+interface SafeMediaDownloaderOptions extends ImageDownloaderOptions {
+  kind: 'image' | 'video'
+}
+
+class SafeMediaDownloader {
   private readonly fetchImpl: FetchLike
   private readonly injectedFetch: boolean
 
-  constructor(private readonly options: ImageDownloaderOptions) {
+  constructor(private readonly options: SafeMediaDownloaderOptions) {
     this.injectedFetch = Boolean(options.fetch)
     this.fetchImpl = (options.fetch || undiciFetch) as unknown as FetchLike
   }
@@ -148,44 +222,72 @@ export class SafeImageDownloader {
         const response = await this.fetchImpl(url, {
           signal: controller.signal,
           redirect: 'manual',
-          headers: { Accept: 'image/*' },
+          headers: { Accept: `${this.options.kind}/*` },
           dispatcher,
         })
         if (response.status >= 300 && response.status < 400) {
           const location = response.headers.get('location')
-          if (!location) throw new Error('图片重定向缺少 Location')
+          if (!location) throw new Error(`${this.label}重定向缺少 Location`)
           url = new URL(location, url)
           continue
         }
-        if (!response.ok) throw new Error(`图片下载失败：HTTP ${response.status}`)
+        if (!response.ok) throw new Error(`${this.label}下载失败：HTTP ${response.status}`)
         const contentType = response.headers.get('content-type') || ''
-        if (contentType && !contentType.toLowerCase().startsWith('image/')) {
-          throw new Error(`图片响应类型异常：${contentType}`)
+        if (contentType && !contentType.toLowerCase().startsWith(`${this.options.kind}/`)) {
+          throw new Error(`${this.label}响应类型异常：${contentType}`)
         }
-        return await readLimited(response, this.options.maxBytes)
+        return await readLimited(response, this.options.maxBytes, this.label)
       } finally {
         clearTimeout(timeout)
         await dispatcher?.close()
       }
     }
-    throw new Error('图片重定向次数过多')
+    throw new Error(`${this.label}重定向次数过多`)
   }
 
   private decodeDataUrl(source: string): Uint8Array {
     const maximumEncodedLength = Math.ceil(this.options.maxBytes / 3) * 4 + 4
     if (source.length > maximumEncodedLength + 128) {
-      throw new Error(`图片超过 ${this.options.maxBytes} 字节限制`)
+      throw new Error(`${this.label}超过 ${this.options.maxBytes} 字节限制`)
     }
-    const match = /^data:image\/[a-z0-9.+-]+;base64,([a-z0-9+/=\s]+)$/i.exec(source)
-    if (!match) throw new Error('仅支持 base64 图片 Data URL')
+    const match = new RegExp(`^data:${this.options.kind}/[a-z0-9.+-]+;base64,([a-z0-9+/=\\s]+)$`, 'i').exec(source)
+    if (!match) throw new Error(`仅支持 base64 ${this.label} Data URL`)
     const encoded = match[1].replace(/\s/g, '')
     if (encoded.length > maximumEncodedLength) {
-      throw new Error(`图片超过 ${this.options.maxBytes} 字节限制`)
+      throw new Error(`${this.label}超过 ${this.options.maxBytes} 字节限制`)
     }
     const data = Buffer.from(encoded, 'base64')
     if (data.byteLength > this.options.maxBytes) {
-      throw new Error(`图片超过 ${this.options.maxBytes} 字节限制`)
+      throw new Error(`${this.label}超过 ${this.options.maxBytes} 字节限制`)
     }
     return data
+  }
+
+  private get label(): string {
+    return this.options.kind === 'image' ? '图片' : '视频'
+  }
+}
+
+export class SafeImageDownloader {
+  private readonly downloader: SafeMediaDownloader
+
+  constructor(options: ImageDownloaderOptions) {
+    this.downloader = new SafeMediaDownloader({ ...options, kind: 'image' })
+  }
+
+  download(source: string): Promise<Uint8Array> {
+    return this.downloader.download(source)
+  }
+}
+
+export class SafeVideoDownloader {
+  private readonly downloader: SafeMediaDownloader
+
+  constructor(options: ImageDownloaderOptions) {
+    this.downloader = new SafeMediaDownloader({ ...options, kind: 'video' })
+  }
+
+  download(source: string): Promise<Uint8Array> {
+    return this.downloader.download(source)
   }
 }

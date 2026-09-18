@@ -17,7 +17,13 @@ import { createRepository, defineDatabaseModel } from './repository'
 import type { Post, RangeSelection } from './types'
 import { QzoneApi } from './qzone/api'
 import { parseCredentials } from './qzone/context'
-import { SafeImageDownloader } from './qzone/image'
+import {
+  detectImageMimeType,
+  detectVideoMimeType,
+  SafeImageDownloader,
+  SafeVideoDownloader,
+} from './qzone/image'
+import { QzoneImageCache } from './qzone/image-cache'
 import { QzoneSession } from './qzone/session'
 import { QzoneService } from './service'
 import {
@@ -63,13 +69,41 @@ function sessionCacheKey(session: Session): string {
   return [session.platform, session.selfId, session.guildId, session.channelId, session.userId].join(':')
 }
 
-async function sendPosts(session: Session, posts: Post[]): Promise<void> {
+async function sendPosts(
+  session: Session,
+  posts: Post[],
+  imageCache: QzoneImageCache,
+  videoCache: QzoneImageCache,
+  logger: import('koishi').Logger,
+): Promise<void> {
   if (!posts.length) {
     await session.send('查询结果为空。')
     return
   }
   for (const [index, post] of posts.entries()) {
     await session.send(formatPost(post, index))
+    for (const source of post.images.slice(0, DEFAULT_QZONE_SETTINGS.maxImages)) {
+      try {
+        const data = await imageCache.getBytes(source)
+        const mimeType = detectImageMimeType(data, source)
+        if (!mimeType) throw new Error('无法识别图片格式')
+        await session.send(h.image(data, mimeType))
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        logger.warn('[qzone] 图片发送失败：%s', message)
+      }
+    }
+    for (const source of post.videos.slice(0, DEFAULT_QZONE_SETTINGS.maxVideos)) {
+      try {
+        const data = await videoCache.getBytes(source)
+        const mimeType = detectVideoMimeType(data, source)
+        if (!mimeType) throw new Error('无法识别视频格式')
+        await session.send(h.video(data, mimeType))
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        logger.warn('[qzone] 视频发送失败：%s', message)
+      }
+    }
   }
 }
 
@@ -95,6 +129,48 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
     maxBytes: DEFAULT_QZONE_SETTINGS.maxImageBytes,
     timeoutMs: DEFAULT_QZONE_SETTINGS.timeoutMs,
   })
+  const commandImageCache = new QzoneImageCache({
+    directory: resolve(baseDir, DEFAULT_QZONE_SETTINGS.imageCachePath),
+    ttlMs: DEFAULT_QZONE_SETTINGS.imageCacheTtlSeconds * 1000,
+    cleanupIntervalMs: DEFAULT_QZONE_SETTINGS.imageCacheCleanupIntervalSeconds * 1000,
+    maxImages: DEFAULT_QZONE_SETTINGS.maxImages,
+    maxBytes: DEFAULT_QZONE_SETTINGS.maxImageBytes,
+    maxTotalBytes: DEFAULT_QZONE_SETTINGS.maxImageBytes,
+    downloader: new SafeImageDownloader({
+      allowedHosts: [...DEFAULT_QZONE_SETTINGS.allowedImageHosts],
+      maxBytes: DEFAULT_QZONE_SETTINGS.maxImageBytes,
+      timeoutMs: DEFAULT_QZONE_SETTINGS.timeoutMs,
+    }),
+    logger: ctx.logger('qzone'),
+  })
+  const modelImageCache = new QzoneImageCache({
+    directory: resolve(baseDir, DEFAULT_QZONE_SETTINGS.modelImageCachePath),
+    ttlMs: DEFAULT_QZONE_SETTINGS.imageCacheTtlSeconds * 1000,
+    cleanupIntervalMs: DEFAULT_QZONE_SETTINGS.imageCacheCleanupIntervalSeconds * 1000,
+    maxImages: DEFAULT_QZONE_SETTINGS.maxModelImages,
+    maxBytes: DEFAULT_QZONE_SETTINGS.maxModelImageBytes,
+    maxTotalBytes: DEFAULT_QZONE_SETTINGS.maxModelImageTotalBytes,
+    downloader: new SafeImageDownloader({
+      allowedHosts: [...DEFAULT_QZONE_SETTINGS.allowedImageHosts],
+      maxBytes: DEFAULT_QZONE_SETTINGS.maxModelImageBytes,
+      timeoutMs: DEFAULT_QZONE_SETTINGS.timeoutMs,
+    }),
+    logger: ctx.logger('qzone'),
+  })
+  const videoCache = new QzoneImageCache({
+    directory: resolve(baseDir, DEFAULT_QZONE_SETTINGS.videoCachePath),
+    ttlMs: DEFAULT_QZONE_SETTINGS.imageCacheTtlSeconds * 1000,
+    cleanupIntervalMs: DEFAULT_QZONE_SETTINGS.imageCacheCleanupIntervalSeconds * 1000,
+    maxImages: DEFAULT_QZONE_SETTINGS.maxVideos,
+    maxBytes: DEFAULT_QZONE_SETTINGS.maxVideoBytes,
+    maxTotalBytes: DEFAULT_QZONE_SETTINGS.maxVideoBytes,
+    downloader: new SafeVideoDownloader({
+      allowedHosts: [...DEFAULT_QZONE_SETTINGS.allowedImageHosts],
+      maxBytes: DEFAULT_QZONE_SETTINGS.maxVideoBytes,
+      timeoutMs: DEFAULT_QZONE_SETTINGS.timeoutMs,
+    }),
+    logger: ctx.logger('qzone'),
+  })
   const service = new QzoneService(
     api,
     qzoneSession,
@@ -103,7 +179,7 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
     DEFAULT_QZONE_SETTINGS.maxImages,
   )
   const recentPosts = new Map<string, Post[]>()
-  registerChatLunaTools(ctx, service, config)
+  registerChatLunaTools(ctx, service, config, modelImageCache)
 
   async function resolveCommandPost(session: Session, reference = '0'): Promise<Post> {
     const normalized = reference.trim()
@@ -182,7 +258,7 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
         withDetail: options?.detail,
       })
       recentPosts.set(sessionCacheKey(session), posts)
-      await sendPosts(session, posts)
+      await sendPosts(session, posts, commandImageCache, videoCache, ctx.logger('qzone'))
     })
 
   ctx.command('qzone.like [reference:string]', '点赞动态，默认最近查询的第 0 条', {
@@ -235,6 +311,11 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
 
   ctx.on('dispose', async () => {
     recentPosts.clear()
+    await Promise.all([
+      commandImageCache.dispose(),
+      modelImageCache.dispose(),
+      videoCache.dispose(),
+    ])
     await qrCodeAdapter.dispose()
   })
 }
