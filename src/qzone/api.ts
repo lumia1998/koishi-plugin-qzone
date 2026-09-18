@@ -15,7 +15,7 @@ export class QzoneApi extends QzoneHttpClient {
   static readonly RECENT_URL = `${QzoneApi.BASE_URL}/proxy/domain/ic2.qzone.qq.com/cgi-bin/feeds/feeds3_html_more`
   static readonly VISITOR_URL = 'https://h5.qzone.qq.com/proxy/domain/g.qzone.qq.com/cgi-bin/friendshow/cgi_get_visitor_more'
   static readonly REPLY_URL = 'https://h5.qzone.qq.com/proxy/domain/taotao.qzone.qq.com/cgi-bin/emotion_cgi_re_feeds'
-  static readonly DELETE_URL = 'https://h5.qzone.qq.com/proxy/domain/taotao.qzone.qq.com/cgi-bin/emotion_cgi_delete_v6'
+  static readonly DELETE_URL = `${QzoneApi.BASE_URL}/proxy/domain/taotao.qzone.qq.com/cgi-bin/emotion_cgi_delete_v6`
   static readonly DETAIL_URL = 'https://h5.qzone.qq.com/proxy/domain/taotao.qq.com/cgi-bin/emotion_cgi_msgdetail_v6'
 
   async getVisitor(): Promise<ApiResponse> {
@@ -61,6 +61,7 @@ export class QzoneApi extends QzoneHttpClient {
       params: { g_tk: context.gtk2, uin: context.uin },
       data,
       retryOnRedirect: false,
+      acceptQzoneProxyHtml: true,
     }), { codeKeys: ['ret', 'code', 'err', 'error'] })
   }
 
@@ -84,6 +85,7 @@ export class QzoneApi extends QzoneHttpClient {
         fupdate: 1,
       },
       retryOnRedirect: false,
+      acceptQzoneProxyHtml: true,
     }), { codeKeys: ['ret', 'code', 'err', 'error'] })
   }
 
@@ -138,6 +140,7 @@ export class QzoneApi extends QzoneHttpClient {
         qzreferrer: `${QzoneApi.BASE_URL}/${context.uin}/main`,
       },
       retryOnRedirect: false,
+      acceptQzoneProxyHtml: true,
     }), { codeKeys: ['ret', 'code', 'err', 'error'] })
   }
 
@@ -146,18 +149,15 @@ export class QzoneApi extends QzoneHttpClient {
     return toApiResponse(await this.request('POST', QzoneApi.DELETE_URL, {
       params: { g_tk: context.gtk2 },
       data: {
-        uin: context.uin,
-        topicId: `${context.uin}_${tid}__1`,
-        feedsType: 0,
-        feedsFlag: 0,
-        feedsKey: tid,
-        feedsAppid: 311,
-        feedsTime: Math.floor(Date.now() / 1000),
-        fupdate: 1,
-        ref: 'feeds',
+        hostuin: context.uin,
+        tid,
+        t1_source: 1,
+        code_version: 1,
+        format: 'fs',
         qzreferrer: `${QzoneApi.BASE_URL}/${context.uin}`,
       },
       retryOnRedirect: false,
+      acceptQzoneProxyHtml: true,
     }), { codeKeys: ['code', 'ret', 'err', 'error'] })
   }
 
