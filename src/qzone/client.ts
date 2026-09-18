@@ -31,8 +31,13 @@ function appendValues(target: URLSearchParams, values: RequestValues): void {
 
 function isQzoneProxyHtml(text: string): boolean {
   const normalized = text.trimStart().toLowerCase()
-  return (normalized.startsWith('<!doctype html') || normalized.startsWith('<html'))
-    && normalized.includes('document.domain="user.qzone.qq.com"')
+  if (!normalized.startsWith('<!doctype html') && !normalized.startsWith('<html')) {
+    return false
+  }
+  return normalized.includes('document.domain')
+    || normalized.includes('user.qzone.qq.com')
+    || normalized.includes('taotao.qzone.qq.com')
+    || normalized.includes('frameelement')
 }
 
 export class QzoneHttpClient {

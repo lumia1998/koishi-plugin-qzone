@@ -36,6 +36,11 @@ const PUBLIC_ERROR_PATTERNS = [
   /^无权限查看 QQ \d+ 的说说$/,
   /^无权限访问好友动态$/,
   /^查询说说失败：code=-?\d+$/,
+  /^删除失败：.*$/,
+  /^发布失败：.*$/,
+  /^评论失败：.*$/,
+  /^回复失败：.*$/,
+  /^点赞失败：.*$/,
 ]
 const postReferenceShape = {
   postId: z.number().int().positive().optional()
