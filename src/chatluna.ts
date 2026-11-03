@@ -29,20 +29,34 @@ const PUBLIC_ERROR_PATTERNS = [
   /^未找到动态，请先执行看说说或使用 uin:tid$/,
   /^动态缺少 tid$/,
   /^评论内容不能为空$/,
+  /^评论内容和图片不能同时为空$/,
   /^回复内容不能为空$/,
   /^评论序号越界，当前可回复 \d+ 条$/,
   /^说说内容和图片不能同时为空$/,
   /^单次最多发布 \d+ 张图片$/,
   /^仅能删除当前账号发布的说说$/,
-  /^登录状态失效，请刷新 Cookie 后重试$/,
-  /^无权限查看 QQ \d+ 的说说$/,
-  /^无权限访问好友动态$/,
-  /^查询说说失败：code=-?\d+$/,
-  /^删除失败：.*$/,
-  /^发布失败：.*$/,
-  /^评论失败：.*$/,
-  /^回复失败：.*$/,
-  /^点赞失败：.*$/,
+  /^动态引用应为本地编号 #12 或 uin:tid$/,
+  /^未找到 OneBot 机器人 \d+，请确认 SnowLuma 已连接$/,
+  /^当前 OneBot 适配器不支持 _request，无法调用 SnowLuma QQ 空间动作$/,
+  /^QQ 空间请求超时（[a-z_]+）。$/,
+  /^QQ 空间写操作超时（[a-z_]+），结果可能已经生效，请先确认后再决定是否重试。$/,
+  /^QQ 空间接口 [a-z_]+ 调用失败：.*$/,
+  /^SnowLuma 未返回登录 QQ 号$/,
+  /^SnowLuma 未返回新说说的 tid$/,
+  /^目标评论缺少 comment_id，无法回复$/,
+  /^未找到父评论，无法回复二级评论$/,
+  /^目标 QQ 号不是有效的 QQ 号$/,
+  /^评论作者 QQ 号不是有效的 QQ 号$/,
+  /^被回复用户 QQ 号不是有效的 QQ 号$/,
+  /^图片 URL 不允许携带用户信息$/,
+  /^图片域名不在白名单：.*$/,
+  /^图片超过 \d+ 字节限制$/,
+  /^发布图片总大小超过 \d+ 字节限制$/,
+  /^图片路径不是文件：.*$/,
+  /^图片路径无效$/,
+  /^发布图片仅支持 http\(s\) URL 或 base64 数据$/,
+  /^图片 base64 数据格式无效$/,
+  /^仅支持 base64 编码的图片 Data URL$/,
 ]
 const postReferenceShape = {
   postId: z.number().int().positive().optional()
@@ -69,10 +83,16 @@ const feedSchema = z.object({
 })
 const postSchema = z.object(postReferenceShape)
 const likeSchema = z.object(postReferenceShape)
+const unlikeSchema = z.object(postReferenceShape)
 const commentSchema = z.object({
   ...postReferenceShape,
-  content: z.string().min(1).max(1000)
-    .describe('要发送的评论内容。仅在用户明确要求评论时调用。'),
+  content: z.string().max(1000).default('')
+    .describe('要发送的评论内容；没有图片时不可为空。'),
+  imageUrls: z.array(z.string().url().refine(
+    (value) => /^https?:\/\//i.test(value),
+    '图片地址必须是 http(s) URL',
+  )).max(9).default([])
+    .describe('可选，最多 9 个公网评论图片 URL；仅一级评论支持图片。'),
 })
 const replySchema = z.object({
   ...postReferenceShape,
@@ -84,7 +104,10 @@ const replySchema = z.object({
 const publishSchema = z.object({
   content: z.string().max(2000).default('')
     .describe('说说文本；没有图片时不可为空。'),
-  imageUrls: z.array(z.string().url()).max(9).default([])
+  imageUrls: z.array(z.string().url().refine(
+    (value) => /^https?:\/\//i.test(value),
+    '图片地址必须是 http(s) URL',
+  )).max(9).default([])
     .describe('可选，最多 9 个公网图片 URL。'),
 })
 const deleteSchema = z.object({
@@ -98,6 +121,7 @@ type ToolInput = Record<string, unknown>
 type FeedInput = z.infer<typeof feedSchema>
 type PostInput = z.infer<typeof postSchema>
 type LikeInput = z.infer<typeof likeSchema>
+type UnlikeInput = z.infer<typeof unlikeSchema>
 type CommentInput = z.infer<typeof commentSchema>
 type ReplyInput = z.infer<typeof replySchema>
 type PublishInput = z.infer<typeof publishSchema>
@@ -204,6 +228,9 @@ function serializeComment(comment: Comment, replyIndex?: number) {
   const parentTid = comment.parentTid
     ? truncateText(comment.parentTid, MAX_IDENTIFIER_LENGTH)
     : undefined
+  const images = comment.images?.length
+    ? serializeStringList(comment.images, MAX_MEDIA_ITEMS, MAX_MEDIA_URL_LENGTH)
+    : undefined
   return {
     contentSource: 'qq_space_external_untrusted',
     tid,
@@ -213,11 +240,15 @@ function serializeComment(comment: Comment, replyIndex?: number) {
     createTime: comment.createTime,
     parentTid,
     replyIndex,
+    ...(images
+      ? { images: images.items, omittedImages: (comment.images?.length || 0) - images.items.length }
+      : {}),
     truncated: tid !== comment.tid
       || uin !== comment.uin
       || nickname !== comment.nickname
       || content !== comment.content
-      || parentTid !== (comment.parentTid || undefined),
+      || parentTid !== (comment.parentTid || undefined)
+      || Boolean(images?.truncated),
   }
 }
 
@@ -310,19 +341,19 @@ export function createQzoneToolDefinitions(
   return [
     defineTool<ToolInput>({
       name: 'qzone_status',
-      description: '查看 QQ 空间登录账号与认证来源，不返回 Cookie。',
+      description: '查看 SnowLuma 当前登录的 QQ 空间账号。',
       schema: emptySchema,
       logger,
       async execute() {
-        const context = await service.session.getContext()
-        const nickname = context.credentials.nickname || context.uin
+        const status = await service.getStatus()
+        const nickname = status.nickname || status.uin
         const value = truncateText(nickname, MAX_NAME_LENGTH)
         return {
           connected: true,
           contentSource: 'qq_space_external_untrusted',
-          uin: context.uin,
+          uin: status.uin,
           nickname: value,
-          source: context.credentials.source,
+          source: status.source,
           truncated: value !== nickname,
         }
       },
@@ -341,7 +372,7 @@ export function createQzoneToolDefinitions(
           excludeSelf: input.excludeSelf,
           excludeCommented: input.excludeCommented,
         })
-        const selfUin = await service.session.getUin()
+        const selfUin = await service.getSelfUin()
         const images = imageCache
           ? await imageCache.createContent(posts.flatMap((post) => post.images))
           : []
@@ -356,7 +387,7 @@ export function createQzoneToolDefinitions(
       async execute(input) {
         const post = await service.resolvePost(resolveReference(input))
         const images = imageCache ? await imageCache.createContent(post.images) : []
-        return withImageContent(serializePost(post, await service.session.getUin()), images)
+        return withImageContent(serializePost(post, await service.getSelfUin()), images)
       },
     }),
     defineTool<LikeInput>({
@@ -370,14 +401,27 @@ export function createQzoneToolDefinitions(
         return { liked: true, reference: formatPostReference(post) }
       },
     }),
+    defineTool<UnlikeInput>({
+      name: 'qzone_unlike',
+      description: '取消对一条 QQ 空间动态的点赞。仅在用户明确要求取消点赞时调用。',
+      schema: unlikeSchema,
+      logger,
+      async execute(input) {
+        const post = await service.resolvePost(resolveReference(input))
+        await service.unlike(post)
+        return { liked: false, reference: formatPostReference(post) }
+      },
+    }),
     defineTool<CommentInput>({
       name: 'qzone_comment',
-      description: '评论一条 QQ 空间动态。仅在用户明确给出评论内容并要求发送时调用。',
+      description: '评论一条 QQ 空间动态，可附带公网图片 URL。仅在用户明确给出评论内容并要求发送时调用。',
       schema: commentSchema,
       logger,
       async execute(input) {
         const post = await service.resolvePost(resolveReference(input))
-        return serializeComment(await service.comment(post, input.content))
+        return serializeComment(await service.comment(post, input.content, input.imageUrls, {
+          allowLocalFiles: false,
+        }))
       },
     }),
     defineTool<ReplyInput>({
@@ -396,7 +440,9 @@ export function createQzoneToolDefinitions(
       schema: publishSchema,
       logger,
       async execute(input) {
-        return serializePost(await service.publish(input.content, input.imageUrls))
+        return serializePost(await service.publish(input.content, input.imageUrls, {
+          allowLocalFiles: false,
+        }))
       },
     }),
     defineTool<DeleteInput>({
@@ -409,21 +455,6 @@ export function createQzoneToolDefinitions(
         const post = await service.resolvePost(resolveReference(input))
         await service.delete(post)
         return { deleted: true, reference: formatPostReference(post) }
-      },
-    }),
-    defineTool<ToolInput>({
-      name: 'qzone_visitors',
-      description: '查询当前 QQ 空间的最近访客。',
-      schema: emptySchema,
-      logger,
-      async execute() {
-        const visitors = await service.visitors()
-        const value = truncateText(visitors, MAX_POST_TEXT_LENGTH)
-        return {
-          contentSource: 'qq_space_external_untrusted',
-          visitors: value,
-          truncated: value !== visitors,
-        }
       },
     }),
   ]

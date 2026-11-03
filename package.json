@@ -1,7 +1,7 @@
 {
   "name": "koishi-plugin-qzone",
   "version": "0.0.16",
-  "description": "测试中，不推荐下载。支持 OneBot 自动刷新与二维码登录的 ChatLuna QQ 空间工具",
+  "description": "测试中，不推荐下载。通过 SnowLuma 为 ChatLuna 提供 QQ 空间工具",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "exports": {
@@ -31,6 +31,7 @@
     "qq",
     "qzone",
     "onebot",
+    "snowluma",
     "chatluna"
   ],
   "license": "GPL-3.0-only",
@@ -52,8 +53,8 @@
   },
   "koishi": {
     "description": {
-      "zh": "测试中，不推荐下载。为 ChatLuna 提供 QQ 空间查询、发布、点赞与评论",
-      "en": "Experimental and not recommended for installation. QQ Space tools for ChatLuna"
+      "zh": "测试中，不推荐下载。通过 SnowLuma 为 ChatLuna 提供 QQ 空间查询、发布、点赞与评论",
+      "en": "Experimental and not recommended for installation. SnowLuma-backed QQ Space tools for ChatLuna"
     },
     "service": {
       "required": [
@@ -71,8 +72,6 @@
   "dependencies": {
     "@langchain/core": "https://codeload.github.com/lumia1998/langchain-core-legacy-safe/tar.gz/894de847dd2b00c858f037dd540089d90828f017",
     "cheerio": "1.0.0",
-    "json5": "^2.2.3",
-    "tough-cookie": "^6.0.2",
     "undici": "^6.28.0",
     "zod": "3.25.76"
   },

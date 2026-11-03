@@ -1,26 +1,3 @@
-export type AuthMode = 'auto' | 'onebot' | 'qrcode'
-
-export interface CredentialResult {
-  cookie: string
-  source: string
-  nickname?: string
-}
-
-export interface CredentialAdapter {
-  readonly name: string
-  getCredential(): Promise<CredentialResult>
-  invalidateCredential?(source?: string): Promise<void>
-}
-
-export interface QzoneCredentials {
-  uin: string
-  skey: string
-  pSkey: string
-  cookie: string
-  source: string
-  nickname?: string
-}
-
 export interface Comment {
   tid: string
   uin: string
@@ -28,6 +5,7 @@ export interface Comment {
   content: string
   createTime: number
   parentTid?: string
+  images?: string[]
 }
 
 export type PostStatus = 'approved' | 'pending' | 'rejected'
@@ -49,15 +27,6 @@ export interface Post {
   repostContent: string
   comments: Comment[]
   extraText: string
-}
-
-export interface ApiResponse<T extends Record<string, unknown> = Record<string, unknown>> {
-  ok: boolean
-  code: number
-  message?: string
-  data: T
-  raw: Record<string, unknown>
-  httpStatus?: number
 }
 
 export interface FeedQuery {

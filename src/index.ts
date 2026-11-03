@@ -1,22 +1,19 @@
 import { resolve } from 'node:path'
 
 import { Context, h } from 'koishi'
-import type { Session } from 'koishi'
+import type { Bot, Session } from 'koishi'
 
+import { registerChatLunaTools } from './chatluna'
 import { Config as ConfigSchema } from './config'
 import type { Config as QzonePluginConfig } from './config'
-import { createCredentialAdapter } from './adapters'
-import {
-  QrCodeCredentialAdapter,
-  QrLoginError,
-} from './adapters/qrcode'
-import { registerChatLunaTools } from './chatluna'
 import { DEFAULT_QZONE_SETTINGS } from './defaults'
 import { formatPost } from './formatter'
-import { createRepository, defineDatabaseModel } from './repository'
 import type { Post, RangeSelection } from './types'
-import { QzoneApi } from './qzone/api'
-import { parseCredentials } from './qzone/context'
+import { createRepository, defineDatabaseModel } from './repository'
+import { QzoneService } from './service'
+import { SnowLumaBackend } from './snowluma/backend'
+import { SnowLumaClient } from './snowluma/client'
+import type { OneBotRequestTarget } from './snowluma/client'
 import {
   detectImageMimeType,
   detectVideoMimeType,
@@ -24,8 +21,6 @@ import {
   SafeVideoDownloader,
 } from './qzone/image'
 import { QzoneImageCache } from './qzone/image-cache'
-import { QzoneSession } from './qzone/session'
-import { QzoneService } from './service'
 import {
   collectImageSources,
   findMentionedUser,
@@ -37,33 +32,20 @@ export const name = 'qzone'
 export const inject = { required: ['chatluna'], optional: ['database'] }
 export const Config = ConfigSchema
 export interface Config extends QzonePluginConfig {}
-export { KoishiOneBotAdapter } from './adapters/onebot'
-export {
-  QrCodeCredentialAdapter,
-  QrLoginError,
-  QrLoginRequiredError,
-  hash33 as qrcodeHash33,
-  parsePtuiCallback,
-} from './adapters/qrcode'
-export type {
-  PtuiCallback,
-  QrCodeCredentialAdapterOptions,
-  QrLoginCallbacks,
-  QrLoginChallenge,
-} from './adapters/qrcode'
 export { createQzoneToolDefinitions, registerChatLunaTools } from './chatluna'
-export { QzoneApi } from './qzone/api'
-export { QzoneSession } from './qzone/session'
+export { SnowLumaBackend } from './snowluma/backend'
+export { SnowLumaActionError, SnowLumaClient, SnowLumaTimeoutError } from './snowluma/client'
 export { QzoneService } from './service'
-export type {
-  AuthMode,
-  ApiResponse,
-  Comment,
-  CredentialAdapter,
-  CredentialResult,
-  Post,
-  QzoneCredentials,
-} from './types'
+export type { QzoneBackend, QzoneLoginInfo } from './backend'
+export type { Comment, Post } from './types'
+
+type OneBotBot = Bot & OneBotRequestTarget
+
+function findOneBotBot(ctx: Context, selfId: string): OneBotBot | undefined {
+  return Array.from(ctx.bots as Iterable<Bot>).find(
+    (bot) => bot.platform === 'onebot' && String(bot.selfId) === selfId,
+  ) as OneBotBot | undefined
+}
 
 function sessionCacheKey(session: Session): string {
   return [session.platform, session.selfId, session.guildId, session.channelId, session.userId].join(':')
@@ -111,24 +93,22 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
   defineDatabaseModel(ctx)
 
   const baseDir = (ctx as Context & { baseDir?: string }).baseDir || process.cwd()
-  const qrCodeAdapter = new QrCodeCredentialAdapter({
-    credentialPath: resolve(baseDir, DEFAULT_QZONE_SETTINGS.credentialPath),
-    timeoutMs: DEFAULT_QZONE_SETTINGS.timeoutMs,
-    loginTimeoutSeconds: DEFAULT_QZONE_SETTINGS.qrLoginTimeoutSeconds,
-    pollIntervalMs: DEFAULT_QZONE_SETTINGS.qrPollIntervalMs,
-  })
-  const credentialAdapter = createCredentialAdapter(ctx, config, qrCodeAdapter)
-  const qzoneSession = new QzoneSession(
-    credentialAdapter,
-    DEFAULT_QZONE_SETTINGS.cookieTtlSeconds,
-  )
-  const api = new QzoneApi(qzoneSession, DEFAULT_QZONE_SETTINGS.timeoutMs, globalThis.fetch, ctx.logger('qzone'), config.debugLogging)
+  const logger = ctx.logger('qzone')
   const repository = createRepository(ctx)
-  const downloader = new SafeImageDownloader({
-    allowedHosts: [...DEFAULT_QZONE_SETTINGS.allowedImageHosts],
-    maxBytes: DEFAULT_QZONE_SETTINGS.maxImageBytes,
-    timeoutMs: DEFAULT_QZONE_SETTINGS.timeoutMs,
+  const client = new SnowLumaClient({
+    selfId: config.onebotSelfId,
+    resolveBot: () => findOneBotBot(ctx, config.onebotSelfId),
+    timeoutMs: DEFAULT_QZONE_SETTINGS.actionTimeoutMs,
+    writeTimeoutMs: DEFAULT_QZONE_SETTINGS.writeTimeoutMs,
+    logger,
+    debugLogging: config.debugLogging,
   })
+  const backend = new SnowLumaBackend(client, {
+    feedPageSize: DEFAULT_QZONE_SETTINGS.feedPageSize,
+    maxFeedPages: DEFAULT_QZONE_SETTINGS.maxFeedPages,
+    detailCommentLimit: DEFAULT_QZONE_SETTINGS.detailCommentLimit,
+  })
+
   const commandImageCache = new QzoneImageCache({
     directory: resolve(baseDir, DEFAULT_QZONE_SETTINGS.imageCachePath),
     ttlMs: DEFAULT_QZONE_SETTINGS.imageCacheTtlSeconds * 1000,
@@ -141,7 +121,7 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
       maxBytes: DEFAULT_QZONE_SETTINGS.maxImageBytes,
       timeoutMs: DEFAULT_QZONE_SETTINGS.timeoutMs,
     }),
-    logger: ctx.logger('qzone'),
+    logger,
   })
   const modelImageCache = new QzoneImageCache({
     directory: resolve(baseDir, DEFAULT_QZONE_SETTINGS.modelImageCachePath),
@@ -155,7 +135,7 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
       maxBytes: DEFAULT_QZONE_SETTINGS.maxModelImageBytes,
       timeoutMs: DEFAULT_QZONE_SETTINGS.timeoutMs,
     }),
-    logger: ctx.logger('qzone'),
+    logger,
   })
   const videoCache = new QzoneImageCache({
     directory: resolve(baseDir, DEFAULT_QZONE_SETTINGS.videoCachePath),
@@ -169,15 +149,19 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
       maxBytes: DEFAULT_QZONE_SETTINGS.maxVideoBytes,
       timeoutMs: DEFAULT_QZONE_SETTINGS.timeoutMs,
     }),
-    logger: ctx.logger('qzone'),
+    logger,
   })
-  const service = new QzoneService(
-    api,
-    qzoneSession,
-    repository,
-    downloader,
-    DEFAULT_QZONE_SETTINGS.maxImages,
-  )
+  const service = new QzoneService(backend, repository, {
+    maxImages: DEFAULT_QZONE_SETTINGS.maxImages,
+    loginInfoTtlMs: DEFAULT_QZONE_SETTINGS.loginInfoTtlMs,
+    logger,
+    publishImages: {
+      allowedHosts: [...DEFAULT_QZONE_SETTINGS.allowedImageHosts],
+      maxImages: DEFAULT_QZONE_SETTINGS.maxImages,
+      maxBytes: DEFAULT_QZONE_SETTINGS.maxImageBytes,
+      maxTotalBytes: DEFAULT_QZONE_SETTINGS.maxPublishTotalBytes,
+    },
+  })
   const recentPosts = new Map<string, Post[]>()
   registerChatLunaTools(ctx, service, config, modelImageCache)
 
@@ -195,50 +179,8 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
   ctx.command('qzone.status', '查看 QQ 空间登录状态', {
     authority: 1,
   }).alias('空间状态').action(async () => {
-    const context = await qzoneSession.getContext()
-    const source = context.credentials.source === 'onebot' ? 'OneBot' : '二维码'
-    return `QQ 空间已连接：${context.credentials.nickname || context.uin} (${context.uin})，认证来源：${source}`
-  })
-
-  ctx.command('qzone.login', '使用 QQ 二维码登录空间', {
-    authority: 3,
-  }).alias('扫码登录空间')
-    .option('cancel', '--cancel 取消正在进行的扫码登录')
-    .action(async ({ session, options }) => {
-      if (!session) return
-      if (options?.cancel) {
-        return qrCodeAdapter.cancelLogin() ? '已取消二维码登录。' : '当前没有进行中的二维码登录。'
-      }
-      if (!session.isDirect) return '请在与机器人的私聊中执行 qzone.login，避免二维码被其他人扫描。'
-
-      try {
-        const result = await qrCodeAdapter.login({
-          async onQrCode(challenge) {
-            await session.send(`请使用手机 QQ 扫描二维码并确认登录，有效期至 ${new Date(challenge.expiresAt).toLocaleTimeString('zh-CN')}。`)
-            await session.send(h.image(challenge.image, challenge.contentType))
-          },
-          async onStatus(status) {
-            if (status === 'scanned') await session.send('二维码已扫描，请在手机 QQ 中确认登录。')
-          },
-        })
-        qzoneSession.invalidate()
-        const credential = parseCredentials(result.cookie, result.source, result.nickname)
-        return `QQ 空间扫码登录成功：${credential.nickname || credential.uin} (${credential.uin})。`
-      } catch (error) {
-        return error instanceof QrLoginError ? error.message : '二维码登录失败，请稍后重试。'
-      }
-    })
-
-  ctx.command('qzone.logout', '清除插件保存的 QQ 空间扫码凭据', {
-    authority: 3,
-  }).alias('退出空间登录').action(async () => {
-    try {
-      await qrCodeAdapter.clearCredential()
-      qzoneSession.invalidate()
-      return '已清除插件保存的扫码凭据；OneBot 登录状态不受影响。'
-    } catch (error) {
-      return error instanceof QrLoginError ? error.message : '扫码凭据清理失败。'
-    }
+    const status = await service.getStatus()
+    return `QQ 空间已连接：${status.nickname || status.uin} (${status.uin})，后端：${status.source}`
   })
 
   ctx.command('qzone.feed [range:string]', '查看 QQ 空间动态', {
@@ -258,7 +200,7 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
         withDetail: options?.detail,
       })
       recentPosts.set(sessionCacheKey(session), posts)
-      await sendPosts(session, posts, commandImageCache, videoCache, ctx.logger('qzone'))
+      await sendPosts(session, posts, commandImageCache, videoCache, logger)
     })
 
   ctx.command('qzone.like [reference:string]', '点赞动态，默认最近查询的第 0 条', {
@@ -270,12 +212,23 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
     return `已点赞 ${post.name || post.uin} 的动态 #${post.id || post.tid}。`
   })
 
-  ctx.command('qzone.comment <reference:string> <content:text>', '评论动态', {
+  ctx.command('qzone.unlike [reference:string]', '取消点赞动态，默认最近查询的第 0 条', {
+    authority: 1,
+  }).alias('取消赞说说').action(async ({ session }, reference) => {
+    if (!session) return
+    const post = await resolveCommandPost(session, reference)
+    await service.unlike(post)
+    return `已取消点赞 ${post.name || post.uin} 的动态 #${post.id || post.tid}。`
+  })
+
+  ctx.command('qzone.comment <reference:string> [content:text]', '评论动态，可附带图片', {
     authority: 1,
   }).alias('评论说说').action(async ({ session }, reference, content) => {
     if (!session) return
     const post = await resolveCommandPost(session, reference)
-    await service.comment(post, content)
+    await service.comment(post, content || '', collectImageSources(session), {
+      allowLocalFiles: true,
+    })
     return `已评论 ${post.name || post.uin} 的动态。`
   })
 
@@ -288,11 +241,13 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
     return '回复已发送。'
   })
 
-  ctx.command('qzone.publish <content:text>', '发布 QQ 空间说说', {
+  ctx.command('qzone.publish [content:text]', '发布 QQ 空间说说', {
     authority: 3,
   }).alias('发说说').action(async ({ session }, content) => {
     if (!session) return
-    const post = await service.publish(content, collectImageSources(session))
+    const post = await service.publish(content || '', collectImageSources(session), {
+      allowLocalFiles: true,
+    })
     return `说说已发布：#${post.id || post.tid}`
   })
 
@@ -305,10 +260,6 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
     return '说说已删除。'
   })
 
-  ctx.command('qzone.visitors', '查看最近访客', {
-    authority: 3,
-  }).alias('查看访客').action(() => service.visitors())
-
   ctx.on('dispose', async () => {
     recentPosts.clear()
     await Promise.all([
@@ -316,6 +267,5 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
       modelImageCache.dispose(),
       videoCache.dispose(),
     ])
-    await qrCodeAdapter.dispose()
   })
 }

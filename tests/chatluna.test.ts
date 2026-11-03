@@ -34,27 +34,24 @@ function createFixture() {
     ],
   })
   const service = {
-    session: {
-      getContext: vi.fn(async () => ({
-        uin: '10001',
-        credentials: {
-          uin: '10001',
-          nickname: 'Qzone User',
-          source: 'qrcode',
-          cookie: 'uin=o10001; p_skey=SECRET',
-        },
-      })),
-      getUin: vi.fn(async () => '10001'),
-    },
+    getStatus: vi.fn(async () => ({
+      connected: true,
+      uin: '10001',
+      nickname: 'Qzone User',
+      source: 'SnowLuma',
+    })),
+    getSelfUin: vi.fn(async () => '10001'),
     queryFeeds: vi.fn(async () => [post]),
     resolvePost: vi.fn(async () => post),
     like: vi.fn(async () => undefined),
-    comment: vi.fn(async (_post, content: string) => ({
+    unlike: vi.fn(async () => undefined),
+    comment: vi.fn(async (_post, content: string, imageUrls: string[] = []) => ({
       tid: 'new-comment',
       uin: '10001',
       nickname: 'Qzone User',
       content,
       createTime: 3,
+      images: imageUrls,
     })),
     reply: vi.fn(async (_post, _index: number, content: string) => ({
       tid: 'new-reply',
@@ -75,8 +72,7 @@ function createFixture() {
     visitors: vi.fn(async () => 'Bob (30003)'),
   } as unknown as QzoneService
   const definitions = createQzoneToolDefinitions(service, {
-    commandAuthority: 1,
-    adminAuthority: 3,
+    onebotSelfId: '10001',
   })
   return { service, definitions, post }
 }
@@ -107,11 +103,11 @@ describe('ChatLuna Qzone tools', () => {
       'qzone_feed',
       'qzone_post',
       'qzone_like',
+      'qzone_unlike',
       'qzone_comment',
       'qzone_reply',
       'qzone_publish',
       'qzone_delete',
-      'qzone_visitors',
     ])
   })
 
@@ -164,14 +160,13 @@ describe('ChatLuna Qzone tools', () => {
     expect(imageCache.createContent).toHaveBeenCalledWith(['https://a.qpic.cn/image.jpg'])
   })
 
-  it('returns status without exposing the stored Cookie', async () => {
+  it('returns the SnowLuma login status without exposing credentials', async () => {
     const { definitions } = createFixture()
     const output = await invoke(findTool(definitions, 'qzone_status'), {}, 1)
     expect(output).toMatchObject({
       ok: true,
-      data: { connected: true, uin: '10001', nickname: 'Qzone User', source: 'qrcode' },
+      data: { connected: true, uin: '10001', nickname: 'Qzone User', source: 'SnowLuma' },
     })
-    expect(JSON.stringify(output)).not.toContain('SECRET')
     expect(JSON.stringify(output)).not.toContain('cookie')
   })
 
@@ -182,7 +177,36 @@ describe('ChatLuna Qzone tools', () => {
       imageUrls: [],
     }, 1)
     expect(output).toMatchObject({ ok: true, data: { postId: 13 } })
-    expect(service.publish).toHaveBeenCalledWith('publish me', [])
+    expect(service.publish).toHaveBeenCalledWith('publish me', [], {
+      allowLocalFiles: false,
+    })
+  })
+
+  it('forwards comment images and allows image-only comments', async () => {
+    const { definitions, service, post } = createFixture()
+
+    const output = await invoke(findTool(definitions, 'qzone_comment'), {
+      postId: 12,
+      content: '',
+      imageUrls: ['https://a.qpic.cn/comment.jpg'],
+    }, 1)
+
+    expect(output).toMatchObject({
+      ok: true,
+      data: { tid: 'new-comment', images: ['https://a.qpic.cn/comment.jpg'] },
+    })
+    expect(service.comment).toHaveBeenCalledWith(post, '', ['https://a.qpic.cn/comment.jpg'], {
+      allowLocalFiles: false,
+    })
+  })
+
+  it('cancels a like through the service', async () => {
+    const { definitions, service, post } = createFixture()
+
+    const output = await invoke(findTool(definitions, 'qzone_unlike'), { postId: 12 }, 1)
+
+    expect(output).toEqual({ ok: true, data: { liked: false, reference: '#12' } })
+    expect(service.unlike).toHaveBeenCalledWith(post)
   })
 
   it('does not expose upstream credentials or internal errors to ChatLuna', async () => {
@@ -285,8 +309,7 @@ describe('ChatLuna Qzone tools', () => {
     } as unknown as Context
 
     registerChatLunaTools(ctx, service, {
-      commandAuthority: 1,
-      adminAuthority: 3,
+      onebotSelfId: '10001',
     })
     ready?.()
 

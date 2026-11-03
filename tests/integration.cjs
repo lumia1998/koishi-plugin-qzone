@@ -13,9 +13,8 @@ const { createEmptyPost } = require('../lib/types')
 
 function makeConfig(patch = {}) {
   return {
-    authMode: 'qrcode',
-    commandAuthority: 1,
-    adminAuthority: 3,
+    onebotSelfId: '123456789',
+    debugLogging: false,
     ...patch,
   }
 }
@@ -23,43 +22,23 @@ function makeConfig(patch = {}) {
 async function main() {
   assert.deepEqual(plugin.inject.required, ['chatluna'])
   assert.deepEqual(plugin.inject.optional, ['database'])
-  const selector = plugin.Config.list[0]
-  const conditional = plugin.Config.list[1]
-  const authMode = selector.dict.authMode
-  assert.equal(selector.type, 'object')
-  assert.equal(conditional.type, 'union')
-  assert.equal(authMode.type, 'union')
-  assert.deepEqual(authMode.list.map((item) => item.value), [
-    'auto',
-    'onebot',
-    'qrcode',
-  ])
-  assert.equal(authMode.meta.default, 'auto')
-  assert.equal(conditional.list[0].dict.authMode.meta.default, 'auto')
+  assert.equal(plugin.Config.type, 'object')
+  assert.deepEqual(Object.keys(plugin.Config.dict), ['onebotSelfId', 'debugLogging'])
   assert.throws(() => plugin.Config({}))
-  assert.throws(() => plugin.Config({
-    authMode: 'auto',
-    commandAuthority: 1,
-    adminAuthority: 3,
-  }))
-  assert.throws(() => plugin.Config({
-    authMode: 'onebot',
-    onebotSelfId: 'not-a-qq-number',
-    commandAuthority: 1,
-    adminAuthority: 3,
-  }))
-  assert.equal(plugin.Config(makeConfig()).authMode, 'qrcode')
-  assert.equal(plugin.Config({
-    authMode: 'onebot',
-    onebotSelfId: '123456789',
-    commandAuthority: 1,
-    adminAuthority: 3,
-  }).onebotSelfId, '123456789')
+  assert.throws(() => plugin.Config({ onebotSelfId: 'not-a-qq-number' }))
+  assert.equal(plugin.Config({ onebotSelfId: '123456789' }).debugLogging, false)
+  assert.equal(plugin.Config(makeConfig()).onebotSelfId, '123456789')
 
   const withoutDatabase = new Context()
   assert.doesNotThrow(() => plugin.apply(withoutDatabase, makeConfig()))
-  assert.ok(withoutDatabase.$commander.resolve('qzone.login'))
-  assert.ok(withoutDatabase.$commander.resolve('qzone.logout'))
+  assert.ok(withoutDatabase.$commander.resolve('qzone.status'))
+  assert.ok(withoutDatabase.$commander.resolve('qzone.feed'))
+  assert.ok(withoutDatabase.$commander.resolve('qzone.unlike'))
+  assert.ok(withoutDatabase.$commander.resolve('qzone.comment'))
+  assert.ok(withoutDatabase.$commander.resolve('qzone.publish'))
+  assert.equal(withoutDatabase.$commander.resolve('qzone.login'), undefined)
+  assert.equal(withoutDatabase.$commander.resolve('qzone.logout'), undefined)
+  assert.equal(withoutDatabase.$commander.resolve('qzone.visitors'), undefined)
   assert.equal(withoutDatabase.$commander.resolve('qzone.refresh'), undefined)
 
   const ctx = new Context()

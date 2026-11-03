@@ -33,7 +33,9 @@ export function collectImageSources(session: Session): string[] {
   const sources: string[] = []
   for (const element of session.elements || []) {
     if (!['img', 'image'].includes(element.type)) continue
-    const source = String(element.attrs.src || element.attrs.url || '').trim()
+    const source = String(
+      element.attrs.src || element.attrs.url || element.attrs.file || '',
+    ).trim()
     if (source) sources.push(source)
   }
   return [...new Set(sources)]

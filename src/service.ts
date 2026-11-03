@@ -1,19 +1,60 @@
-import type { Post, FeedQuery, Comment } from './types'
-import { asNumber, asRecord, asString, createEmptyPost } from './types'
+import type { Logger } from 'koishi'
+
+import type { QzoneBackend, QzoneLoginInfo } from './backend'
+import { preparePublishImages } from './publish-images'
+import type { PublishImageOptions } from './publish-images'
 import type { PostRepository } from './repository'
-import type { QzoneSession } from './qzone/session'
-import type { QzoneApi } from './qzone/api'
-import type { SafeImageDownloader } from './qzone/image'
-import { formatVisitors, parseFeeds, parseRecentFeeds } from './qzone/parser'
+import type { Comment, FeedQuery, Post } from './types'
+import { createEmptyPost } from './types'
+
+export interface QzoneServiceOptions {
+  maxImages?: number
+  loginInfoTtlMs?: number
+  publishImages?: PublishImageOptions
+  logger?: Logger
+}
+
+export interface QzoneStatus extends QzoneLoginInfo {
+  connected: true
+  source: 'SnowLuma'
+}
+
+export interface PublishOptions {
+  /** ChatLuna 只允许公网 URL；命令可额外读取本机图片文件。 */
+  allowLocalFiles?: boolean
+}
 
 export class QzoneService {
+  private readonly maxImages: number
+  private readonly loginInfoTtlMs: number
+  private cachedLoginInfo?: { value: QzoneLoginInfo; expiresAt: number }
+
   constructor(
-    readonly api: QzoneApi,
-    readonly session: QzoneSession,
+    readonly backend: QzoneBackend,
     readonly repository: PostRepository,
-    readonly imageDownloader: SafeImageDownloader,
-    readonly maxImages = 9,
-  ) {}
+    private readonly options: QzoneServiceOptions = {},
+  ) {
+    this.maxImages = Math.max(1, options.maxImages ?? 9)
+    this.loginInfoTtlMs = Math.max(0, options.loginInfoTtlMs ?? 60_000)
+  }
+
+  async getLoginInfo(): Promise<QzoneLoginInfo> {
+    if (this.cachedLoginInfo && this.cachedLoginInfo.expiresAt > Date.now()) {
+      return this.cachedLoginInfo.value
+    }
+    const value = await this.backend.getLoginInfo()
+    this.cachedLoginInfo = { value, expiresAt: Date.now() + this.loginInfoTtlMs }
+    return value
+  }
+
+  async getSelfUin(): Promise<string> {
+    return (await this.getLoginInfo()).uin
+  }
+
+  async getStatus(): Promise<QzoneStatus> {
+    const info = await this.getLoginInfo()
+    return { connected: true, uin: info.uin, nickname: info.nickname, source: 'SnowLuma' }
+  }
 
   async queryFeeds(query: FeedQuery = {}): Promise<Post[]> {
     const offset = Math.max(0, query.offset || 0)
@@ -21,24 +62,24 @@ export class QzoneService {
     let posts: Post[]
 
     if (query.targetId) {
-      const response = await this.api.getFeeds(query.targetId, offset, limit)
-      if (!response.ok) throw new Error(this.mapFeedError(response.code, response.message, response.httpStatus, query.targetId))
-      posts = parseFeeds(response.data.msglist)
+      posts = await this.backend.getUserPosts(query.targetId, offset, limit)
     } else {
-      const response = await this.api.getRecentFeeds()
-      if (!response.ok) throw new Error(this.mapFeedError(response.code, response.message, response.httpStatus))
-      posts = parseRecentFeeds(response.data).slice(offset, offset + limit)
+      posts = await this.backend.getFriendFeeds(offset, limit)
     }
 
-    const selfUin = await this.session.getUin()
+    const selfUin = await this.getSelfUin()
     if (query.excludeSelf) posts = posts.filter((post) => post.uin !== selfUin)
 
     if (query.withDetail) {
       const detailed: Post[] = []
       for (const post of posts) {
-        const response = await this.api.getDetail(post)
-        const parsed = response.ok ? parseFeeds([response.data])[0] : undefined
-        detailed.push(parsed || post)
+        try {
+          detailed.push(await this.backend.getDetail(post))
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          this.options.logger?.warn('[qzone] 获取动态详情失败 %s: %s', post.tid, message)
+          detailed.push(post)
+        }
       }
       posts = detailed
     }
@@ -69,23 +110,47 @@ export class QzoneService {
 
   async like(post: Post): Promise<void> {
     if (!post.tid) throw new Error('动态缺少 tid')
-    const response = await this.api.like(post)
-    if (!response.ok) throw new Error(response.message || `点赞失败：${response.code}`)
+    await this.backend.like(post)
   }
 
-  async comment(post: Post, content: string): Promise<Comment> {
+  async unlike(post: Post): Promise<void> {
+    if (!post.tid) throw new Error('动态缺少 tid')
+    await this.backend.unlike(post)
+  }
+
+  private async prepareImages(
+    imageSources: string[],
+    publishOptions: PublishOptions,
+  ): Promise<string[]> {
+    return preparePublishImages(imageSources, {
+      allowedHosts: this.options.publishImages?.allowedHosts ?? [],
+      maxImages: this.maxImages,
+      maxBytes: this.options.publishImages?.maxBytes ?? 0,
+      maxTotalBytes: this.options.publishImages?.maxTotalBytes ?? 0,
+      allowLocalFiles: publishOptions.allowLocalFiles === true,
+    })
+  }
+
+  async comment(
+    post: Post,
+    content: string,
+    imageSources: string[] = [],
+    publishOptions: PublishOptions = {},
+  ): Promise<Comment> {
     const text = content.trim()
     if (!post.tid) throw new Error('动态缺少 tid')
-    if (!text) throw new Error('评论内容不能为空')
-    const response = await this.api.comment(post, text)
-    if (!response.ok) throw new Error(response.message || `评论失败：${response.code}`)
+    if (!text && !imageSources.length) throw new Error('评论内容和图片不能同时为空')
+    const images = await this.prepareImages(imageSources, publishOptions)
+    const result = await this.backend.comment(post, text, images)
+    const self = await this.getLoginInfo()
 
     const comment: Comment = {
-      tid: asString(response.data.tid),
-      uin: await this.session.getUin(),
-      nickname: await this.session.getNickname(),
+      tid: result.commentId || '',
+      uin: self.uin,
+      nickname: self.nickname,
       content: text,
       createTime: Math.floor(Date.now() / 1000),
+      images: images.filter((source) => source.startsWith('http')),
     }
     post.comments.push(comment)
     await this.repository.save(post)
@@ -96,17 +161,17 @@ export class QzoneService {
     const text = content.trim()
     if (!post.tid) throw new Error('动态缺少 tid')
     if (!text) throw new Error('回复内容不能为空')
-    const selfUin = await this.session.getUin()
+    const selfUin = await this.getSelfUin()
     const candidates = post.comments.filter((comment) => comment.uin !== selfUin)
     const target = candidates.at(commentIndex)
     if (!target) throw new Error(`评论序号越界，当前可回复 ${candidates.length} 条`)
 
-    const response = await this.api.reply(post, target, text)
-    if (!response.ok) throw new Error(response.message || `回复失败：${response.code}`)
+    const result = await this.backend.reply(post, target, text)
+    const self = await this.getLoginInfo()
     const reply: Comment = {
-      tid: asString(response.data.tid),
-      uin: selfUin,
-      nickname: await this.session.getNickname(),
+      tid: result.commentId || '',
+      uin: self.uin,
+      nickname: self.nickname,
       content: text,
       createTime: Math.floor(Date.now() / 1000),
       parentTid: target.tid,
@@ -116,51 +181,37 @@ export class QzoneService {
     return reply
   }
 
-  async publish(text: string, imageSources: string[] = []): Promise<Post> {
+  async publish(
+    text: string,
+    imageSources: string[] = [],
+    publishOptions: PublishOptions = {},
+  ): Promise<Post> {
     const content = text.trim()
     if (!content && !imageSources.length) throw new Error('说说内容和图片不能同时为空')
     if (imageSources.length > this.maxImages) {
       throw new Error(`单次最多发布 ${this.maxImages} 张图片`)
     }
-    const images: Uint8Array[] = []
-    for (const source of imageSources) images.push(await this.imageDownloader.download(source))
 
+    const preparedImages = await this.prepareImages(imageSources, publishOptions)
+
+    const self = await this.getLoginInfo()
+    const result = await this.backend.publish(content, preparedImages)
     const post = createEmptyPost({
-      uin: await this.session.getUin(),
-      name: await this.session.getNickname(),
+      uin: self.uin,
+      name: self.nickname,
       text: content,
-      createTime: Math.floor(Date.now() / 1000),
+      images: preparedImages.filter((source) => source.startsWith('http')),
+      createTime: result.createTime,
+      tid: result.tid,
     })
-    const response = await this.api.publish(post, images)
-    if (!response.ok) throw new Error(response.message || `发布失败：${response.code}`)
-    post.tid = asString(response.data.tid)
-    post.createTime = asNumber(response.data.now, post.createTime)
     return this.repository.save(post)
   }
 
   async delete(post: Post): Promise<void> {
-    const selfUin = await this.session.getUin()
+    const selfUin = await this.getSelfUin()
     if (post.uin !== selfUin) throw new Error('仅能删除当前账号发布的说说')
     if (!post.tid) throw new Error('动态缺少 tid')
-    const response = await this.api.deletePost(post.tid)
-    if (!response.ok) throw new Error(response.message || `删除失败：${response.code}`)
+    await this.backend.delete(post)
     if (post.id) await this.repository.remove(post.id)
-  }
-
-  async visitors(): Promise<string> {
-    const response = await this.api.getVisitor()
-    if (!response.ok) throw new Error(response.message || `获取访客失败：${response.code}`)
-    return formatVisitors(response.data)
-  }
-
-  private mapFeedError(code: number, message?: string, httpStatus?: number, target?: string): string {
-    const text = (message || '').toLowerCase()
-    if (code === -3000 || /(登录|失效|cookie|skey|expired)/i.test(text)) {
-      return '登录状态失效，请刷新 Cookie 后重试'
-    }
-    if (code === 403 || code === -403 || httpStatus === 403 || /(权限|私密|forbidden)/i.test(text)) {
-      return target ? `无权限查看 QQ ${target} 的说说` : '无权限访问好友动态'
-    }
-    return message ? `查询说说失败：${message}` : `查询说说失败：code=${code}`
   }
 }
