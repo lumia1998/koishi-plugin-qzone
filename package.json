@@ -1,6 +1,6 @@
 {
   "name": "koishi-plugin-qzone",
-  "version": "0.0.16",
+  "version": "0.0.17",
   "description": "测试中，不推荐下载。通过 SnowLuma 为 ChatLuna 提供 QQ 空间工具",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
