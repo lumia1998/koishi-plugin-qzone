@@ -1,7 +1,7 @@
 import { readFile, stat } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 
-import { matchesAllowedHost } from './qzone/image'
+import { isPrivateHostname, matchesAllowedHost } from './qzone/image'
 
 export interface PublishImageOptions {
   allowedHosts: string[]
@@ -38,8 +38,8 @@ function dataUrlToBase64(source: string): string {
  * 将命令 / ChatLuna 传入的图片统一转换为 SnowLuma 支持的
  * `http(s)://` 或 `base64://` 形式。
  *
- * 公网 URL 只允许插件白名单内的 QQ CDN 域名；SnowLuma 会在自己的
- * 进程内下载该 URL，因此这里必须先做域名限制，避免把内网地址交给后端。
+ * 公网 URL 只允许配置的图片域名白名单；SnowLuma 会在自己的进程内下载
+ * 该 URL，因此这里必须先做域名限制，避免把内网地址交给后端。
  */
 export async function preparePublishImages(
   sources: string[],
@@ -64,6 +64,9 @@ export async function preparePublishImages(
     } else if (/^https?:\/\//i.test(source)) {
       const url = new URL(source)
       if (url.username || url.password) throw new Error('图片 URL 不允许携带用户信息')
+      if (isPrivateHostname(url.hostname)) {
+        throw new Error('图片 URL 只支持公网地址，不允许内网地址')
+      }
       if (!matchesAllowedHost(url.hostname, options.allowedHosts)) {
         throw new Error(`图片域名不在白名单：${url.hostname}`)
       }

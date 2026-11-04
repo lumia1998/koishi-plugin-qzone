@@ -69,12 +69,18 @@ plugins:
   qzone:
     onebotSelfId: '123456789'
     debugLogging: false
+    imageHosts:
+      - '*.qpic.cn'
+      - '*.qlogo.cn'
+      - '*.qq.com'
+      - '*.gtimg.cn'
 ```
 
 | 配置 | 默认值 | 说明 |
 | --- | --- | --- |
 | `onebotSelfId` | 无 | 必填，已连接 SnowLuma 的 OneBot 机器人 QQ 号，只允许纯数字 |
 | `debugLogging` | `false` | 输出 SnowLuma Action 名称与参数键名，不记录图片、Cookie 或 Token |
+| `imageHosts` | `*.qpic.cn`、`*.qlogo.cn`、`*.qq.com`、`*.gtimg.cn` | 图片下载与发布的域名白名单，仅支持公网域名；不支持内网地址、IP、端口或路径 |
 
 插件不会在 QQ 号为空时选择任意在线机器人。找不到匹配的 `onebot` 平台机器人时，
 所有空间操作都会返回连接错误。
@@ -91,7 +97,8 @@ plugins:
 - 每次最多向 ChatLuna 传递 9 张图片，总大小最多 16 MiB，单张最多 4 MiB
 - 单次最多发布或评论 9 张图片，每张最多 8 MiB，总计最多 16 MiB
 - `看说说` 每条动态最多发送 9 张图片（单张 8 MiB）和 3 个视频（单个 32 MiB）
-- 允许下载和发布的媒体域名：`*.qpic.cn`、`*.qlogo.cn`、`*.qq.com`、`*.gtimg.cn`
+- 图片下载与发布默认允许的域名：`*.qpic.cn`、`*.qlogo.cn`、`*.qq.com`、`*.gtimg.cn`；可通过 `imageHosts` 修改，内网地址会被拒绝
+- 视频下载默认允许的域名与图片默认白名单相同
 
 ## 命令
 
@@ -115,8 +122,9 @@ plugins:
 看说说 -u 12345678 0
 ```
 
-`看说说` 的原始媒体 URL 会保留在文本中便于追溯；插件同时将白名单内的图片和视频
-下载至本地缓存，并通过 `h.image(buffer, mime)`、`h.video(buffer, mime)` 发送。因此不依赖
+`看说说` 的原始媒体 URL 会保留在文本中便于追溯；插件同时将配置的图片域名白名单
+和默认视频域名白名单内的媒体下载至本地缓存，并通过 `h.image(buffer, mime)`、
+`h.video(buffer, mime)` 发送。因此不依赖
 QQ 媒体直链是否能被目标适配器转发。最终是否显示为原生视频仍取决于所使用的平台和
 OneBot 实现对视频元素的支持。
 
@@ -125,7 +133,7 @@ OneBot 实现对视频元素的支持。
 
 发布命令和评论命令都会收集当前消息中的图片元素：
 
-- QQ CDN 图片 URL 会先校验域名，再交给 SnowLuma 下载。
+- 图片 URL 会先校验公网地址和配置的 `imageHosts` 域名白名单，再交给 SnowLuma 下载。
 - 本地图片路径或 `file://` 地址会读取并转换为 `base64://`。
 - 纯图片说说/评论没有文本时，插件会发送一个零宽空格，以满足 SnowLuma
   “`content` 至少 1 个字符”的要求。
@@ -152,7 +160,7 @@ OneBot 实现对视频元素的支持。
 模型适配器丢弃，但仍保留图片 URL。
 
 ChatLuna 发布和评论图片只接受公网 `http(s)` URL 或 base64 数据，不接受本机文件。
-所有 URL 必须命中媒体域名白名单。
+所有 URL 必须命中配置的图片域名白名单。
 
 ## SnowLuma Action
 
@@ -201,6 +209,6 @@ src/
 - 依赖 SnowLuma 及其 QQ 空间实现，Action 字段变化时需要同步调整解析器。
 - SnowLuma 将 `unlike_qzone` 标注为“取消赞端点待真机核实”，取消点赞可能失败。
 - SnowLuma 必须保持 WebSocket 在线；插件不会自行登录 QQ 空间。
-- 发布图片只接受白名单内的 QQ CDN 域名；ChatLuna 不接受本地文件。
+- 发布图片只接受配置白名单内的公网域名（默认仅 QQ CDN）；ChatLuna 不接受本地文件。
 - 内存仓库会在插件重载后清空，生产环境建议安装数据库插件。
 - 图片视觉理解依赖当前 ChatLuna 模型支持图片输入；仅支持文本的模型无法分析图片内容。

@@ -95,6 +95,40 @@ describe('QzoneService', () => {
     expect(await repo.getByRemote('10001', 'new_tid')).toBeDefined()
   })
 
+  it('publishes images from a configured public host', async () => {
+    const backend = createBackend()
+    const service = new QzoneService(backend, new MemoryPostRepository(), {
+      publishImages: {
+        allowedHosts: ['s3.lumia.wang'],
+        maxImages: 9,
+        maxBytes: 1024,
+        maxTotalBytes: 4096,
+      },
+    })
+
+    await service.publish('hello', ['http://s3.lumia.wang/image.jpg'])
+
+    expect(backend.publish).toHaveBeenCalledWith('hello', ['https://s3.lumia.wang/image.jpg'])
+  })
+
+  it('rejects private image addresses even when they are whitelisted', async () => {
+    const backend = createBackend()
+    const service = new QzoneService(backend, new MemoryPostRepository(), {
+      publishImages: {
+        allowedHosts: ['192.168.1.1', 'localhost'],
+        maxImages: 9,
+        maxBytes: 1024,
+        maxTotalBytes: 4096,
+      },
+    })
+
+    await expect(service.publish('hello', ['http://192.168.1.1/image.jpg']))
+      .rejects.toThrow('图片 URL 只支持公网地址')
+    await expect(service.publish('hello', ['http://localhost/image.jpg']))
+      .rejects.toThrow('图片 URL 只支持公网地址')
+    expect(backend.publish).not.toHaveBeenCalled()
+  })
+
   it('adds comments and replies to the saved post', async () => {
     const backend = createBackend()
     const repo = new MemoryPostRepository()

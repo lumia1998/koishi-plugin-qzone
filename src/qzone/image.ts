@@ -40,6 +40,21 @@ function isPrivateIpv6(address: string): boolean {
     || normalized.startsWith('2001:db8:')
 }
 
+export function isPrivateHostname(hostname: string): boolean {
+  const host = hostname.toLowerCase().trim().replace(/^\[|\]$/g, '').replace(/\.$/, '')
+  if (!host) return true
+
+  const family = isIP(host)
+  if (family === 4) return isPrivateIpv4(host)
+  if (family === 6) return isPrivateIpv6(host)
+
+  // 单标签主机名通常是内网主机，例如 http://nas/。
+  if (!host.includes('.')) return true
+  return host === 'localhost'
+    || host.endsWith('.localhost')
+    || host.endsWith('.local')
+}
+
 export function matchesAllowedHost(hostname: string, patterns: string[]): boolean {
   const host = hostname.toLowerCase().replace(/\.$/, '')
   return patterns.some((rawPattern) => {

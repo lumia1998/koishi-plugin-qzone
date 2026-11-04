@@ -94,6 +94,7 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
 
   const baseDir = (ctx as Context & { baseDir?: string }).baseDir || process.cwd()
   const logger = ctx.logger('qzone')
+  const imageHosts = config.imageHosts ?? [...DEFAULT_QZONE_SETTINGS.allowedImageHosts]
   const repository = createRepository(ctx)
   const client = new SnowLumaClient({
     selfId: config.onebotSelfId,
@@ -117,7 +118,7 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
     maxBytes: DEFAULT_QZONE_SETTINGS.maxImageBytes,
     maxTotalBytes: DEFAULT_QZONE_SETTINGS.maxImageBytes,
     downloader: new SafeImageDownloader({
-      allowedHosts: [...DEFAULT_QZONE_SETTINGS.allowedImageHosts],
+      allowedHosts: [...imageHosts],
       maxBytes: DEFAULT_QZONE_SETTINGS.maxImageBytes,
       timeoutMs: DEFAULT_QZONE_SETTINGS.timeoutMs,
     }),
@@ -131,7 +132,7 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
     maxBytes: DEFAULT_QZONE_SETTINGS.maxModelImageBytes,
     maxTotalBytes: DEFAULT_QZONE_SETTINGS.maxModelImageTotalBytes,
     downloader: new SafeImageDownloader({
-      allowedHosts: [...DEFAULT_QZONE_SETTINGS.allowedImageHosts],
+      allowedHosts: [...imageHosts],
       maxBytes: DEFAULT_QZONE_SETTINGS.maxModelImageBytes,
       timeoutMs: DEFAULT_QZONE_SETTINGS.timeoutMs,
     }),
@@ -156,7 +157,7 @@ export function apply(ctx: Context, config: QzonePluginConfig): void {
     loginInfoTtlMs: DEFAULT_QZONE_SETTINGS.loginInfoTtlMs,
     logger,
     publishImages: {
-      allowedHosts: [...DEFAULT_QZONE_SETTINGS.allowedImageHosts],
+      allowedHosts: [...imageHosts],
       maxImages: DEFAULT_QZONE_SETTINGS.maxImages,
       maxBytes: DEFAULT_QZONE_SETTINGS.maxImageBytes,
       maxTotalBytes: DEFAULT_QZONE_SETTINGS.maxPublishTotalBytes,

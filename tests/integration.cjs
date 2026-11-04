@@ -23,10 +23,34 @@ async function main() {
   assert.deepEqual(plugin.inject.required, ['chatluna'])
   assert.deepEqual(plugin.inject.optional, ['database'])
   assert.equal(plugin.Config.type, 'object')
-  assert.deepEqual(Object.keys(plugin.Config.dict), ['onebotSelfId', 'debugLogging'])
+  assert.deepEqual(
+    Object.keys(plugin.Config.dict),
+    ['onebotSelfId', 'debugLogging', 'imageHosts'],
+  )
   assert.throws(() => plugin.Config({}))
   assert.throws(() => plugin.Config({ onebotSelfId: 'not-a-qq-number' }))
   assert.equal(plugin.Config({ onebotSelfId: '123456789' }).debugLogging, false)
+  assert.deepEqual(plugin.Config({ onebotSelfId: '123456789' }).imageHosts, [
+    '*.qpic.cn',
+    '*.qlogo.cn',
+    '*.qq.com',
+    '*.gtimg.cn',
+  ])
+  assert.deepEqual(
+    plugin.Config({
+      onebotSelfId: '123456789',
+      imageHosts: ['s3.lumia.wang', '*.example.com'],
+    }).imageHosts,
+    ['s3.lumia.wang', '*.example.com'],
+  )
+  assert.throws(() => plugin.Config({
+    onebotSelfId: '123456789',
+    imageHosts: ['192.168.1.1'],
+  }))
+  assert.throws(() => plugin.Config({
+    onebotSelfId: '123456789',
+    imageHosts: ['http://example.com'],
+  }))
   assert.equal(plugin.Config(makeConfig()).onebotSelfId, '123456789')
 
   const withoutDatabase = new Context()

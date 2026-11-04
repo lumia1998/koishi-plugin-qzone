@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   detectVideoMimeType,
+  isPrivateHostname,
   matchesAllowedHost,
   SafeImageDownloader,
   SafeVideoDownloader,
@@ -12,6 +13,24 @@ describe('SafeImageDownloader', () => {
     expect(matchesAllowedHost('a.qpic.cn', ['*.qpic.cn'])).toBe(true)
     expect(matchesAllowedHost('qpic.cn', ['*.qpic.cn'])).toBe(true)
     expect(matchesAllowedHost('qpic.cn.evil.test', ['*.qpic.cn'])).toBe(false)
+  })
+
+  it('rejects internal and single-label hostnames', () => {
+    expect(isPrivateHostname('localhost')).toBe(true)
+    expect(isPrivateHostname('nas')).toBe(true)
+    expect(isPrivateHostname('printer.local')).toBe(true)
+    expect(isPrivateHostname('192.168.1.1')).toBe(true)
+    expect(isPrivateHostname('10.0.0.1')).toBe(true)
+    expect(isPrivateHostname('127.0.0.1')).toBe(true)
+    expect(isPrivateHostname('[::1]')).toBe(true)
+    expect(isPrivateHostname('fd00::1')).toBe(true)
+  })
+
+  it('accepts public hostnames', () => {
+    expect(isPrivateHostname('s3.lumia.wang')).toBe(false)
+    expect(isPrivateHostname('a.qpic.cn')).toBe(false)
+    expect(isPrivateHostname('8.8.8.8')).toBe(false)
+    expect(isPrivateHostname('2001:4860:4860::8888')).toBe(false)
   })
 
   it('accepts bounded image data URLs', async () => {
